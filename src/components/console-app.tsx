@@ -28,25 +28,9 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import type { CapabilitySpec } from "@/lib/capabilities/catalog";
 import type { Backend, DataPolicy, Invocation, Locality } from "@/lib/types";
+import { parseSseBlocks } from "@/lib/sse";
 
 type LoadState = "idle" | "loading" | "error";
-
-function parseSseBlocks(buffer: string): { events: { event: string; data: string }[]; rest: string } {
-  const events: { event: string; data: string }[] = [];
-  const parts = buffer.split("\n\n");
-  const rest = parts.pop() ?? "";
-  for (const part of parts) {
-    if (!part.trim()) continue;
-    let event = "message";
-    const dataLines: string[] = [];
-    for (const line of part.split("\n")) {
-      if (line.startsWith("event:")) event = line.slice(6).trim();
-      else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
-    }
-    events.push({ event, data: dataLines.join("\n") });
-  }
-  return { events, rest };
-}
 
 export function ConsoleApp() {
   const [backends, setBackends] = useState<Backend[]>([]);
@@ -244,20 +228,35 @@ export function ConsoleApp() {
 
   function tryCapability(spec: CapabilitySpec) {
     setCapability(spec.id);
-    setInvokePath(spec.defaultPath);
+    const streamPath = spec.defaultStreamPath ?? spec.defaultPath;
+    const wantsStream =
+      spec.streamRequired || Boolean(spec.defaultStreamPath);
     setInvokeBody(JSON.stringify(spec.sampleBody, null, 2));
     setInvokeError("");
     setLastResult(null);
     setStreamLive("");
 
-    const match = backends.find(
+    const candidates = backends.filter(
       (b) => b.enabled && b.capabilities.includes(spec.id),
     );
+    const match = wantsStream
+      ? (candidates.find(
+          (b) => b.supportsStreaming && b.locality === "remote",
+        ) ??
+          candidates.find((b) => b.supportsStreaming) ??
+          candidates[0])
+      : (candidates.find((b) => b.locality === "local") ?? candidates[0]);
+
     if (match) {
       setRouteMode("backend");
       setBackendId(match.id);
+      const useStream =
+        wantsStream &&
+        (match.supportsStreaming || match.locality === "remote");
+      setInvokePath(useStream ? streamPath : spec.defaultPath);
     } else {
       setRouteMode("capability");
+      setInvokePath(wantsStream ? streamPath : spec.defaultPath);
     }
 
     document
@@ -399,24 +398,12 @@ export function ConsoleApp() {
       const parsed = parseSseBlocks(buffer);
       buffer = parsed.rest;
       for (const ev of parsed.events) {
-        if (ev.event === "chunk") {
+        if (ev.event === "token") {
           try {
-            const data = JSON.parse(ev.data) as { raw?: string };
-            const raw = data.raw ?? "";
-            // Extract token fields from nested upstream SSE if present
-            for (const line of raw.split("\n")) {
-              if (line.startsWith("data:")) {
-                const inner = line.slice(5).trim();
-                try {
-                  const obj = JSON.parse(inner) as { token?: string };
-                  if (typeof obj.token === "string") {
-                    live += obj.token;
-                    setStreamLive(live);
-                  }
-                } catch {
-                  /* ignore non-json */
-                }
-              }
+            const data = JSON.parse(ev.data) as { token?: string };
+            if (typeof data.token === "string") {
+              live += data.token;
+              setStreamLive(live);
             }
           } catch {
             /* ignore */
@@ -429,16 +416,14 @@ export function ConsoleApp() {
             /* ignore */
           }
         } else if (ev.event === "error") {
+          let message = "流式错误";
           try {
             const data = JSON.parse(ev.data) as { error?: string };
-            throw new Error(data.error || "流式错误");
-          } catch (error) {
-            if (error instanceof Error && error.message !== "流式错误") {
-              /* parse fail */
-            } else {
-              throw error;
-            }
+            if (data.error) message = data.error;
+          } catch {
+            /* ignore */
           }
+          throw new Error(message);
         }
       }
     }

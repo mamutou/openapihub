@@ -2,6 +2,7 @@ export {
   CAPABILITY_CATALOG,
   getCapabilitySpec,
   listCapabilityCatalog,
+  resolveCapabilityPath,
   type CapabilityId,
   type CapabilitySpec,
 } from "@/lib/capabilities/catalog";

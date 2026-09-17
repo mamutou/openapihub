@@ -17,9 +17,12 @@ export type CapabilitySpec = {
   requiresEdge: boolean;
   edgeHint: string;
   suggestedLocality: Locality | "either";
-  /** remote 路径是否必须流式 */
+  /** 该能力禁止一元调用（含 local），必须走 /api/invoke/stream */
   streamRequired: boolean;
+  /** 一元 / 非流式默认 path */
   defaultPath: string;
+  /** 流式默认 path（缺省则用 defaultPath） */
+  defaultStreamPath?: string;
   sampleBody: Record<string, unknown>;
 };
 
@@ -34,6 +37,7 @@ export const CAPABILITY_CATALOG: CapabilitySpec[] = [
     suggestedLocality: "either",
     streamRequired: false,
     defaultPath: "/echo",
+    defaultStreamPath: "/echo/stream",
     sampleBody: { message: "OpenAPIHub 你好" },
   },
   {
@@ -45,6 +49,7 @@ export const CAPABILITY_CATALOG: CapabilitySpec[] = [
     suggestedLocality: "either",
     streamRequired: true,
     defaultPath: "/chat/stream",
+    defaultStreamPath: "/chat/stream",
     sampleBody: {
       messages: [{ role: "user", content: "用一句话介绍 OpenAPIHub" }],
     },
@@ -101,6 +106,7 @@ export const CAPABILITY_CATALOG: CapabilitySpec[] = [
     suggestedLocality: "either",
     streamRequired: true,
     defaultPath: "/compose/stream",
+    defaultStreamPath: "/compose/stream",
     sampleBody: {
       template: "poster",
       layers: [{ type: "text", content: "OpenAPIHub" }],
@@ -130,4 +136,17 @@ export function getCapabilitySpec(
 
 export function listCapabilityCatalog(): CapabilitySpec[] {
   return CAPABILITY_CATALOG;
+}
+
+/** Catalog-driven path: stream mode prefers defaultStreamPath */
+export function resolveCapabilityPath(
+  capabilityId: string,
+  mode: "unary" | "stream",
+): string | undefined {
+  const spec = getCapabilitySpec(capabilityId);
+  if (!spec) return undefined;
+  if (mode === "stream") {
+    return spec.defaultStreamPath ?? spec.defaultPath;
+  }
+  return spec.defaultPath;
 }

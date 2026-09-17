@@ -2,7 +2,10 @@ import {
   findBackendsByCapability,
   getBackend,
 } from "@/lib/registry";
-import { getCapabilitySpec } from "@/lib/capabilities/catalog";
+import {
+  getCapabilitySpec,
+  resolveCapabilityPath,
+} from "@/lib/capabilities/catalog";
 import {
   UNARY_TIMEOUT_MS,
   abortErrorMessage,
@@ -44,7 +47,35 @@ export function assertRemoteUnaryForbidden(backend: Backend): void {
   }
 }
 
-function pickPreferred(matches: Backend[], preferLocal: boolean): Backend {
+/** Catalog streamRequired: unary forbidden even for local backends. */
+export function assertStreamRequiredCapability(
+  capability: string,
+): void {
+  const spec = getCapabilitySpec(capability);
+  if (spec?.streamRequired) {
+    throw new PolicyError(
+      `能力 ${capability} 要求流式调用（streamRequired）：请使用 POST /api/invoke/stream`,
+    );
+  }
+}
+
+function pickPreferred(
+  matches: Backend[],
+  preferLocal: boolean,
+  streaming: boolean,
+): Backend {
+  if (streaming) {
+    const streamingCapable = matches.filter((b) => b.supportsStreaming);
+    const pool = streamingCapable.length > 0 ? streamingCapable : matches;
+    if (preferLocal) {
+      return pool.find((b) => b.locality === "local") ?? pool[0];
+    }
+    // Prefer remote streaming backends for capability demos when not preferLocal
+    return (
+      pool.find((b) => b.locality === "remote") ??
+      pool[0]
+    );
+  }
   if (!preferLocal) return matches[0];
   return matches.find((b) => b.locality === "local") ?? matches[0];
 }
@@ -101,7 +132,7 @@ export function resolveBackendForPolicy(
 
   if (streaming) {
     const streamable = matches.filter(
-      (b) => b.locality === "local" || b.supportsStreaming,
+      (b) => b.supportsStreaming || b.locality === "local",
     );
     if (streamable.length === 0) {
       throw new PolicyError(
@@ -110,7 +141,6 @@ export function resolveBackendForPolicy(
     }
     matches = streamable;
   } else {
-    // Unary: local only (remote hard-forbidden)
     const unaryOk = matches.filter((b) => b.locality === "local");
     if (unaryOk.length === 0) {
       throw new PolicyError(
@@ -120,7 +150,7 @@ export function resolveBackendForPolicy(
     matches = unaryOk;
   }
 
-  return pickPreferred(matches, flags.preferLocal);
+  return pickPreferred(matches, flags.preferLocal, streaming);
 }
 
 function capabilityForPolicy(request: InvokeRequest): string | undefined {
@@ -138,7 +168,7 @@ export function policyHeaders(flags: DataPolicyFlags): Record<string, string> {
   };
 }
 
-/** 非流式调用：仅 local；remote 硬拒绝 */
+/** 非流式调用：仅 local；remote 硬拒绝；streamRequired 能力拒绝 */
 export async function routeInvoke(
   request: InvokeRequest,
   opts?: { signal?: AbortSignal; timeoutMs?: number },
@@ -152,10 +182,11 @@ export async function routeInvoke(
   const effectiveFlags = resolvePolicy(capability);
   assertRemoteComputeAllowed(backend, effectiveFlags.allowRemoteCompute);
   assertRemoteUnaryForbidden(backend);
+  assertStreamRequiredCapability(capability);
 
   const path =
     request.path?.trim() ||
-    getCapabilitySpec(capability)?.defaultPath ||
+    resolveCapabilityPath(capability, "unary") ||
     "/echo";
   const method = (request.method ?? "POST").toUpperCase();
   const targetUrl = joinUrl(backend.baseUrl, path);
@@ -268,7 +299,7 @@ export function prepareStreamInvoke(request: InvokeRequest): StreamInvokeSetup {
 
   const path =
     request.path?.trim() ||
-    getCapabilitySpec(capability)?.defaultPath ||
+    resolveCapabilityPath(capability, "stream") ||
     (backend.locality === "remote" ? "/echo/stream" : "/echo");
   const method = (request.method ?? "POST").toUpperCase();
   const targetUrl = joinUrl(backend.baseUrl, path);

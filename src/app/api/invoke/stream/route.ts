@@ -13,6 +13,11 @@ import {
   prepareStreamInvoke,
   type StreamInvokeSetup,
 } from "@/lib/router";
+import {
+  extractTokensFromUpstreamEvent,
+  formatSse,
+  parseSseBlocks,
+} from "@/lib/sse";
 import type { InvokeRequest } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -81,7 +86,11 @@ export async function POST(request: NextRequest) {
       errorCode: isAbortError(error) ? "ABORTED" : "UPSTREAM_ERROR",
     });
     return NextResponse.json(
-      { error: message, invocation, code: isAbortError(error) ? "ABORTED" : "UPSTREAM_ERROR" },
+      {
+        error: message,
+        invocation,
+        code: isAbortError(error) ? "ABORTED" : "UPSTREAM_ERROR",
+      },
       { status: isAbortError(error) ? 504 : 502 },
     );
   }
@@ -107,7 +116,9 @@ export async function POST(request: NextRequest) {
   let finalized = false;
   let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
-  const finalizeOnce = (outcome: Parameters<typeof finalizeStreamInvocation>[1]) => {
+  const finalizeOnce = (
+    outcome: Parameters<typeof finalizeStreamInvocation>[1],
+  ) => {
     if (finalized) return null;
     finalized = true;
     return finalizeStreamInvocation(setup, outcome);
@@ -125,11 +136,10 @@ export async function POST(request: NextRequest) {
         retainPayloads: retain,
         note: "云端 ephemeral · 输出在本地收看 · Hub 默认不落正文",
       };
-      controller.enqueue(
-        encoder.encode(`event: meta\ndata: ${JSON.stringify(meta)}\n\n`),
-      );
+      controller.enqueue(encoder.encode(formatSse("meta", meta)));
 
       reader = upstream.body!.getReader();
+      let sseBuffer = "";
       try {
         while (true) {
           if (upstreamAbort.signal.aborted) {
@@ -138,13 +148,35 @@ export async function POST(request: NextRequest) {
           const { done, value } = await reader.read();
           if (done) break;
           const chunk = decoder.decode(value, { stream: true });
-          if (retain) assembled += chunk;
-          controller.enqueue(
-            encoder.encode(
-              `event: chunk\ndata: ${JSON.stringify({ raw: chunk })}\n\n`,
-            ),
-          );
+          sseBuffer += chunk;
+          const parsed = parseSseBlocks(sseBuffer);
+          sseBuffer = parsed.rest;
+
+          for (const ev of parsed.events) {
+            const tokens = extractTokensFromUpstreamEvent(ev);
+            for (const token of tokens) {
+              if (retain) assembled += token;
+              controller.enqueue(
+                encoder.encode(formatSse("token", { token })),
+              );
+            }
+          }
         }
+
+        // Flush trailing SSE without final blank line
+        if (sseBuffer.trim()) {
+          const parsed = parseSseBlocks(sseBuffer + "\n\n");
+          for (const ev of parsed.events) {
+            const tokens = extractTokensFromUpstreamEvent(ev);
+            for (const token of tokens) {
+              if (retain) assembled += token;
+              controller.enqueue(
+                encoder.encode(formatSse("token", { token })),
+              );
+            }
+          }
+        }
+
         const invocation = finalizeOnce({
           status: "success",
           httpStatus: upstream.status,
@@ -152,7 +184,7 @@ export async function POST(request: NextRequest) {
         });
         controller.enqueue(
           encoder.encode(
-            `event: done\ndata: ${JSON.stringify({
+            formatSse("done", {
               invocation: invocation
                 ? {
                     id: invocation.id,
@@ -164,7 +196,7 @@ export async function POST(request: NextRequest) {
                     durationMs: invocation.durationMs,
                   }
                 : null,
-            })}\n\n`,
+            }),
           ),
         );
         controller.close();
@@ -180,7 +212,7 @@ export async function POST(request: NextRequest) {
         try {
           controller.enqueue(
             encoder.encode(
-              `event: error\ndata: ${JSON.stringify({
+              formatSse("error", {
                 error: message,
                 invocation: invocation
                   ? {
@@ -188,7 +220,7 @@ export async function POST(request: NextRequest) {
                       responseSummary: invocation.responseSummary,
                     }
                   : null,
-              })}\n\n`,
+              }),
             ),
           );
           controller.close();
