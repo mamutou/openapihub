@@ -8,9 +8,9 @@
 |------|------|------|
 | `preferLocal` | `false` | 可优先 local，**不禁止** remote |
 | `allowRemoteCompute` | `true` | 允许把算力路由到云端 |
-| `streamOnlyRemote` | `true` | remote 必须流式；非流式 remote 拒绝 |
+| `streamOnlyRemote` | `true`（**硬约束，不可关**） | remote 必须流式；禁止一元缓冲云端输出 |
 | `retainPayloads` | `false` | Hub 历史只留元数据，不落正文 |
-| `remoteRetainFiles` | `false` | 硬约束：远端不得保留文件 |
+| `remoteRetainFiles` | `false`（硬约束） | 远端不得保留文件 |
 
 ## 能力一览
 
@@ -39,7 +39,7 @@ export HA_BASE_URL=http://127.0.0.1:8123
 export HA_TOKEN=your_long_lived_token
 ```
 
-类型与适配边界：`src/lib/capabilities/`。无 env 时一律走 mock。
+适配器状态（仅探测 env，不代发）：`GET /api/capabilities` 的 `adapters` 字段。真实 LLM/HA 请注册为 Backend。
 
 ## 本地运行
 
