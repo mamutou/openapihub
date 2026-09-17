@@ -3,6 +3,12 @@ import {
   getBackend,
 } from "@/lib/registry";
 import { getCapabilitySpec } from "@/lib/capabilities/catalog";
+import {
+  UNARY_TIMEOUT_MS,
+  abortErrorMessage,
+  createTimeoutSignal,
+  isAbortError,
+} from "@/lib/http";
 import { recordInvocation } from "@/lib/invocations";
 import { PolicyError, resolvePolicy } from "@/lib/policy";
 import type {
@@ -29,16 +35,11 @@ function assertRemoteComputeAllowed(
   }
 }
 
-function assertUnaryAllowed(
-  backend: Backend,
-  flags: DataPolicyFlags,
-): void {
-  if (
-    backend.locality === "remote" &&
-    flags.streamOnlyRemote
-  ) {
+/** Hard gate: remote never unary-buffered, regardless of policy toggles. */
+export function assertRemoteUnaryForbidden(backend: Backend): void {
+  if (backend.locality === "remote") {
     throw new PolicyError(
-      `remote 后端「${backend.name}」仅允许流式调用：请使用 POST /api/invoke/stream（streamOnlyRemote=true）`,
+      `remote 后端「${backend.name}」只能走流式调用 POST /api/invoke/stream（硬约束：禁止一元缓冲云端输出）`,
     );
   }
 }
@@ -75,7 +76,7 @@ export function resolveBackendForPolicy(
         );
       }
     } else {
-      assertUnaryAllowed(backend, flags);
+      assertRemoteUnaryForbidden(backend);
     }
     return backend;
   }
@@ -99,7 +100,6 @@ export function resolveBackendForPolicy(
   }
 
   if (streaming) {
-    // Prefer streaming-capable remotes when explicitly streaming; still allow local
     const streamable = matches.filter(
       (b) => b.locality === "local" || b.supportsStreaming,
     );
@@ -109,14 +109,12 @@ export function resolveBackendForPolicy(
       );
     }
     matches = streamable;
-  } else if (flags.streamOnlyRemote) {
-    // Unary path: only local (or remotes that somehow allow unary — none when streamOnly)
-    const unaryOk = matches.filter(
-      (b) => b.locality === "local" || !flags.streamOnlyRemote,
-    );
+  } else {
+    // Unary: local only (remote hard-forbidden)
+    const unaryOk = matches.filter((b) => b.locality === "local");
     if (unaryOk.length === 0) {
       throw new PolicyError(
-        `能力 ${request.capability} 仅有需流式的 remote 后端；请改用 /api/invoke/stream，或启用 local 后端`,
+        `能力 ${request.capability} 仅有 remote 后端；请改用 POST /api/invoke/stream（remote 禁止一元缓冲）`,
       );
     }
     matches = unaryOk;
@@ -140,9 +138,10 @@ export function policyHeaders(flags: DataPolicyFlags): Record<string, string> {
   };
 }
 
-/** 非流式调用：local 可用；remote 在 streamOnlyRemote 下拒绝 */
+/** 非流式调用：仅 local；remote 硬拒绝 */
 export async function routeInvoke(
   request: InvokeRequest,
+  opts?: { signal?: AbortSignal; timeoutMs?: number },
 ): Promise<{ invocation: Invocation; data: unknown }> {
   const policyFlags = resolvePolicy(capabilityForPolicy(request));
   const backend = resolveBackendForPolicy(request, policyFlags, {
@@ -152,7 +151,7 @@ export async function routeInvoke(
     request.capability ?? backend.capabilities[0] ?? "unknown";
   const effectiveFlags = resolvePolicy(capability);
   assertRemoteComputeAllowed(backend, effectiveFlags.allowRemoteCompute);
-  assertUnaryAllowed(backend, effectiveFlags);
+  assertRemoteUnaryForbidden(backend);
 
   const path =
     request.path?.trim() ||
@@ -161,6 +160,8 @@ export async function routeInvoke(
   const method = (request.method ?? "POST").toUpperCase();
   const targetUrl = joinUrl(backend.baseUrl, path);
   const started = Date.now();
+  const timeoutMs = opts?.timeoutMs ?? UNARY_TIMEOUT_MS;
+  const { signal, clear } = createTimeoutSignal(timeoutMs, opts?.signal);
 
   try {
     const upstream = await fetch(targetUrl, {
@@ -177,6 +178,7 @@ export async function routeInvoke(
           ? undefined
           : JSON.stringify(request.body ?? {}),
       cache: "no-store",
+      signal,
     });
 
     const contentType = upstream.headers.get("content-type") ?? "";
@@ -212,8 +214,7 @@ export async function routeInvoke(
     return { invocation, data: responseBody };
   } catch (error) {
     const durationMs = Date.now() - started;
-    const message =
-      error instanceof Error ? error.message : "调用上游失败";
+    const message = abortErrorMessage(error, "调用上游失败");
     const invocation = recordInvocation({
       backendId: backend.id,
       backendName: backend.name,
@@ -227,10 +228,12 @@ export async function routeInvoke(
       status: "error",
       responseBody: undefined,
       error: message,
-      errorCode: "UPSTREAM_ERROR",
+      errorCode: isAbortError(error) ? "ABORTED" : "UPSTREAM_ERROR",
       durationMs,
     });
     return { invocation, data: { error: message } };
+  } finally {
+    clear();
   }
 }
 
@@ -256,7 +259,7 @@ export function prepareStreamInvoke(request: InvokeRequest): StreamInvokeSetup {
   assertRemoteComputeAllowed(backend, flags.allowRemoteCompute);
 
   if (backend.locality === "remote") {
-    if (flags.streamOnlyRemote && !backend.supportsStreaming) {
+    if (!backend.supportsStreaming) {
       throw new PolicyError(
         `remote 后端「${backend.name}」不支持流式（supportsStreaming=false）`,
       );
@@ -289,7 +292,6 @@ export function finalizeStreamInvocation(
     httpStatus?: number;
     error?: string;
     errorCode?: string;
-    /** only stored when retainPayloads */
     assembledText?: string;
   },
 ): Invocation {

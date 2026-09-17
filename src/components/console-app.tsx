@@ -269,10 +269,7 @@ export function ConsoleApp() {
     patch: Partial<
       Pick<
         DataPolicy,
-        | "preferLocal"
-        | "allowRemoteCompute"
-        | "streamOnlyRemote"
-        | "retainPayloads"
+        "preferLocal" | "allowRemoteCompute" | "retainPayloads"
       >
     >,
   ) {
@@ -515,9 +512,7 @@ export function ConsoleApp() {
                 <Badge variant={policy.allowRemoteCompute ? "default" : "secondary"}>
                   {policy.allowRemoteCompute ? "允许云算力" : "禁用云算力"}
                 </Badge>
-                <Badge variant="outline">
-                  {policy.streamOnlyRemote ? "remote 仅流式" : "remote 可一元"}
-                </Badge>
+                <Badge variant="outline">remote 仅流式（硬约束）</Badge>
                 <Badge variant={policy.retainPayloads ? "secondary" : "outline"}>
                   {policy.retainPayloads ? "保留载荷" : "不落正文"}
                 </Badge>
@@ -601,18 +596,14 @@ export function ConsoleApp() {
                       }
                     />
                   </label>
-                  <label className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3">
+                  <label className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 opacity-90">
                     <div>
                       <p className="text-sm font-medium">streamOnlyRemote</p>
-                      <p className="text-xs text-muted-foreground">默认 true</p>
+                      <p className="text-xs text-muted-foreground">
+                        硬约束：remote 禁止一元缓冲（不可关闭）
+                      </p>
                     </div>
-                    <Switch
-                      checked={policy.streamOnlyRemote}
-                      disabled={policySaving}
-                      onCheckedChange={(c) =>
-                        void patchPolicy({ streamOnlyRemote: c })
-                      }
-                    />
+                    <Switch checked disabled aria-readonly />
                   </label>
                   <label className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3">
                     <div>
@@ -804,7 +795,7 @@ export function ConsoleApp() {
                       onChange={(e) => setCapability(e.target.value)}
                     />
                     <p className="text-xs text-muted-foreground">
-                      一元路径在 streamOnlyRemote 下只会选 local。
+                      一元仅可选 local；remote 必须流式（硬约束）。
                     </p>
                   </div>
                 ) : (

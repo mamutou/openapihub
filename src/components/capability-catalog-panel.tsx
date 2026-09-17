@@ -36,16 +36,26 @@ export function CapabilityCatalogPanel({
         <CardDescription>
           标准能力 ID + mock 试调。标有「需端侧」的项在真实环境需部署软硬件；无后端时 mock 仍可跑通。
         </CardDescription>
-        <div className="flex flex-wrap gap-2 pt-1 text-xs text-muted-foreground">
-          <span>
-            OpenAI 兼容：
-            {adapters.openaiCompatible ? "已配置 env" : "未配置（用 mock）"}
-          </span>
-          <span>·</span>
-          <span>
-            Home Assistant：
-            {adapters.homeAssistant ? "已配置 env" : "未配置（用 mock）"}
-          </span>
+        <div className="space-y-1 pt-1 text-xs text-muted-foreground">
+          <p>
+            适配器状态（<strong className="font-medium text-slate-700">仅探测 env，不代发请求</strong>
+            ；真实调用请自行注册 Backend baseUrl）：
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <span>
+              OpenAI 兼容：
+              {adapters.openaiCompatible
+                ? "检测到 OPENAI_*（未代发）"
+                : "未配置"}
+            </span>
+            <span>·</span>
+            <span>
+              Home Assistant：
+              {adapters.homeAssistant
+                ? "检测到 HA_*（未代发）"
+                : "未配置"}
+            </span>
+          </div>
         </div>
       </CardHeader>
       <CardContent>

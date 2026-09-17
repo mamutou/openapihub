@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
     /* ignore */
   }
 
-  const ha = homeAssistantConfigured();
+  const haEnvPresent = homeAssistantConfigured();
   const state =
     action === "turn_off" ? "off" : action === "toggle" ? "toggled" : "on";
 
@@ -20,10 +20,12 @@ export async function POST(request: NextRequest) {
     entityId,
     state,
     action,
-    mock: !ha,
-    source: ha ? ("home-assistant" as const) : ("mock" as const),
-    note: ha
-      ? "检测到 HA_BASE_URL/HA_TOKEN；本 mock 仍返回模拟状态。请将真实 HA 注册为独立后端。"
-      : "未配置 Home Assistant，返回 mock 状态。设置 HA_BASE_URL + HA_TOKEN 后可对接真实网关。",
+    // Honest: this handler never proxies to HA — always mock
+    mock: true,
+    source: "mock" as const,
+    haEnvDetected: haEnvPresent,
+    note: haEnvPresent
+      ? "检测到 HA_BASE_URL/HA_TOKEN，但 Hub 不会代发；本响应仍为 mock。请将真实 HA 注册为 Backend 的 baseUrl。"
+      : "未配置 Home Assistant env；返回 mock。配置 HA_BASE_URL + HA_TOKEN 仅作探测，不会自动代发。",
   });
 }

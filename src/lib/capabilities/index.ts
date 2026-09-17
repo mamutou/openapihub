@@ -9,10 +9,10 @@ export {
 export type * from "@/lib/capabilities/types";
 
 /**
- * 可选真实适配占位：
- * - llm.chat → OPENAI_BASE_URL + OPENAI_API_KEY（见 adapters/openai-compatible.ts）
- * - home.control → HA_BASE_URL + HA_TOKEN（见 adapters/home-assistant.ts）
- * 无环境变量时控制台与路由一律走 mock。
+ * 可选真实适配占位（仅探测环境变量，Hub 不会代发）：
+ * - llm.chat → OPENAI_BASE_URL + OPENAI_API_KEY
+ * - home.control → HA_BASE_URL + HA_TOKEN
+ * 无 env 或有 env 时，默认调用链仍走已注册 Backend / mock。
  */
 export function hasOpenAiCompatibleConfig(): boolean {
   return Boolean(

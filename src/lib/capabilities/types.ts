@@ -88,6 +88,7 @@ export type HomeControlRequest = {
 export type HomeControlResponse = {
   entityId: string;
   state: string;
-  mock: boolean;
-  source: "mock" | "home-assistant";
+  mock: true;
+  source: "mock";
+  haEnvDetected?: boolean;
 };

@@ -1,6 +1,10 @@
 import { getStore } from "@/lib/store";
 import type { DataPolicy, DataPolicyFlags } from "@/lib/types";
 
+/**
+ * streamOnlyRemote / remoteRetainFiles 为硬约束：API 不可关闭。
+ * remote 算力可上云，但云路径不得一元攒全文。
+ */
 export const DEFAULT_DATA_POLICY: DataPolicy = {
   preferLocal: false,
   allowRemoteCompute: true,
@@ -14,6 +18,19 @@ export function getDataPolicy(): DataPolicy {
   return getStore().policy;
 }
 
+function scrubCapabilityOverrides(
+  byCapability: DataPolicy["byCapability"],
+): DataPolicy["byCapability"] {
+  const next: DataPolicy["byCapability"] = {};
+  for (const [key, value] of Object.entries(byCapability)) {
+    if (!value || typeof value !== "object") continue;
+    const rest = { ...value };
+    delete rest.streamOnlyRemote;
+    next[key] = rest;
+  }
+  return next;
+}
+
 export function resolvePolicy(capability?: string): DataPolicyFlags {
   const policy = getDataPolicy();
   const override =
@@ -25,14 +42,16 @@ export function resolvePolicy(capability?: string): DataPolicyFlags {
     preferLocal: override?.preferLocal ?? policy.preferLocal,
     allowRemoteCompute:
       override?.allowRemoteCompute ?? policy.allowRemoteCompute,
-    streamOnlyRemote: override?.streamOnlyRemote ?? policy.streamOnlyRemote,
+    // Hard invariant — ignore overrides
+    streamOnlyRemote: true,
     retainPayloads: override?.retainPayloads ?? policy.retainPayloads,
     remoteRetainFiles: false,
   };
 }
 
 export function updateDataPolicy(
-  patch: Partial<Omit<DataPolicyFlags, "remoteRetainFiles">> & {
+  patch: Partial<Omit<DataPolicyFlags, "remoteRetainFiles" | "streamOnlyRemote">> & {
+    streamOnlyRemote?: boolean;
     byCapability?: DataPolicy["byCapability"];
   },
 ): DataPolicy {
@@ -47,10 +66,8 @@ export function updateDataPolicy(
       patch.allowRemoteCompute !== undefined
         ? Boolean(patch.allowRemoteCompute)
         : store.policy.allowRemoteCompute,
-    streamOnlyRemote:
-      patch.streamOnlyRemote !== undefined
-        ? Boolean(patch.streamOnlyRemote)
-        : store.policy.streamOnlyRemote,
+    // Immutable hard gates
+    streamOnlyRemote: true,
     retainPayloads:
       patch.retainPayloads !== undefined
         ? Boolean(patch.retainPayloads)
@@ -58,7 +75,10 @@ export function updateDataPolicy(
     remoteRetainFiles: false,
     byCapability:
       patch.byCapability !== undefined
-        ? { ...store.policy.byCapability, ...patch.byCapability }
+        ? scrubCapabilityOverrides({
+            ...store.policy.byCapability,
+            ...patch.byCapability,
+          })
         : store.policy.byCapability,
   };
   store.policy = next;

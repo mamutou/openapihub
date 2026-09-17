@@ -51,3 +51,8 @@ export function nowIso(): string {
 export function createId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().slice(0, 8)}`;
 }
+
+/** Test-only: wipe in-memory state */
+export function resetStoreForTests(): void {
+  globalForStore.__openapihubStore = createStore();
+}
