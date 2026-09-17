@@ -34,7 +34,7 @@ export function seedDefaultBackends(origin: string): void {
   if (store.seedVersion >= STORE_SEED_VERSION) return;
 
   store.backends.clear();
-  store.invocations = [];
+  // Keep invocation history across seed upgrades / HMR module reloads
   const now = nowIso();
   const defaults: Backend[] = [
     {

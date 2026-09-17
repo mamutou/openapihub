@@ -410,10 +410,8 @@ export function ConsoleApp() {
         useStream ||
         (routeMode === "capability" &&
           policy?.streamOnlyRemote &&
-          // capability stream demo: if user set path to stream
           invokePath.includes("stream"));
 
-      // Remote backends always stream when streamOnlyRemote
       const mustStream =
         (routeMode === "backend" && selectedBackend?.locality === "remote") ||
         stream;
@@ -423,11 +421,11 @@ export function ConsoleApp() {
       } else {
         await invokeUnary(base);
       }
-      await loadInvocations();
     } catch (error) {
       setInvokeError(error instanceof Error ? error.message : "调用失败");
     } finally {
       setInvoking(false);
+      await loadInvocations();
     }
   }
 
