@@ -44,6 +44,53 @@ export function ConsoleApp() {
   const [invokeError, setInvokeError] = useState("");
   const [lastResult, setLastResult] = useState<unknown>(null);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function bootstrap() {
+      try {
+        const res = await fetch("/api/backends", { cache: "no-store" });
+        const data = await res.json();
+        if (cancelled) return;
+        if (!res.ok) throw new Error(data.error || "加载后端失败");
+        const list: Backend[] = data.backends ?? [];
+        setBackends(list);
+        setBackendsError("");
+        setBackendsState("idle");
+        setBackendId((current) => current || list[0]?.id || "");
+      } catch (error) {
+        if (cancelled) return;
+        setBackendsState("error");
+        setBackendsError(
+          error instanceof Error ? error.message : "加载后端失败",
+        );
+      }
+
+      try {
+        const res = await fetch("/api/invocations?limit=40", {
+          cache: "no-store",
+        });
+        const data = await res.json();
+        if (cancelled) return;
+        if (!res.ok) throw new Error(data.error || "加载调用记录失败");
+        setInvocations(data.invocations ?? []);
+        setInvocationsError("");
+        setInvocationsState("idle");
+      } catch (error) {
+        if (cancelled) return;
+        setInvocationsState("error");
+        setInvocationsError(
+          error instanceof Error ? error.message : "加载调用记录失败",
+        );
+      }
+    }
+
+    void bootstrap();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const loadBackends = useCallback(async (opts?: { showLoading?: boolean }) => {
     if (opts?.showLoading) setBackendsState("loading");
     try {
@@ -77,11 +124,6 @@ export function ConsoleApp() {
       );
     }
   }, []);
-
-  useEffect(() => {
-    void loadBackends();
-    void loadInvocations();
-  }, [loadBackends, loadInvocations]);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
