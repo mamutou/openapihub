@@ -44,15 +44,15 @@ export function ConsoleApp() {
   const [invokeError, setInvokeError] = useState("");
   const [lastResult, setLastResult] = useState<unknown>(null);
 
-  const loadBackends = useCallback(async () => {
-    setBackendsState("loading");
-    setBackendsError("");
+  const loadBackends = useCallback(async (opts?: { showLoading?: boolean }) => {
+    if (opts?.showLoading) setBackendsState("loading");
     try {
       const res = await fetch("/api/backends", { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "加载后端失败");
       const list: Backend[] = data.backends ?? [];
       setBackends(list);
+      setBackendsError("");
       setBackendsState("idle");
       setBackendId((current) => current || list[0]?.id || "");
     } catch (error) {
@@ -61,14 +61,14 @@ export function ConsoleApp() {
     }
   }, []);
 
-  const loadInvocations = useCallback(async () => {
-    setInvocationsState("loading");
-    setInvocationsError("");
+  const loadInvocations = useCallback(async (opts?: { showLoading?: boolean }) => {
+    if (opts?.showLoading) setInvocationsState("loading");
     try {
       const res = await fetch("/api/invocations?limit=40", { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "加载调用记录失败");
       setInvocations(data.invocations ?? []);
+      setInvocationsError("");
       setInvocationsState("idle");
     } catch (error) {
       setInvocationsState("error");
@@ -206,8 +206,8 @@ export function ConsoleApp() {
             <Button
               variant="outline"
               onClick={() => {
-                void loadBackends();
-                void loadInvocations();
+                void loadBackends({ showLoading: true });
+                void loadInvocations({ showLoading: true });
               }}
             >
               <RefreshCw className="size-3.5" />
@@ -473,7 +473,7 @@ export function ConsoleApp() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => void loadInvocations()}
+                onClick={() => void loadInvocations({ showLoading: true })}
               >
                 <RefreshCw className="size-3.5" />
                 刷新
