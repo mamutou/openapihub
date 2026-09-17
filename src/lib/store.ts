@@ -1,8 +1,8 @@
 import type { Backend, DataPolicy, Invocation } from "@/lib/types";
 import { DEFAULT_DATA_POLICY } from "@/lib/policy";
 
-/** Bump when seed shape / privacy defaults change */
-export const STORE_SEED_VERSION = 3;
+/** Bump when seed shape / privacy defaults / capability mocks change */
+export const STORE_SEED_VERSION = 4;
 
 type Store = {
   backends: Map<string, Backend>;

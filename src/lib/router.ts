@@ -2,6 +2,7 @@ import {
   findBackendsByCapability,
   getBackend,
 } from "@/lib/registry";
+import { getCapabilitySpec } from "@/lib/capabilities/catalog";
 import { recordInvocation } from "@/lib/invocations";
 import { PolicyError, resolvePolicy } from "@/lib/policy";
 import type {
@@ -153,7 +154,10 @@ export async function routeInvoke(
   assertRemoteComputeAllowed(backend, effectiveFlags.allowRemoteCompute);
   assertUnaryAllowed(backend, effectiveFlags);
 
-  const path = request.path?.trim() || "/echo";
+  const path =
+    request.path?.trim() ||
+    getCapabilitySpec(capability)?.defaultPath ||
+    "/echo";
   const method = (request.method ?? "POST").toUpperCase();
   const targetUrl = joinUrl(backend.baseUrl, path);
   const started = Date.now();
@@ -261,6 +265,7 @@ export function prepareStreamInvoke(request: InvokeRequest): StreamInvokeSetup {
 
   const path =
     request.path?.trim() ||
+    getCapabilitySpec(capability)?.defaultPath ||
     (backend.locality === "remote" ? "/echo/stream" : "/echo");
   const method = (request.method ?? "POST").toUpperCase();
   const targetUrl = joinUrl(backend.baseUrl, path);

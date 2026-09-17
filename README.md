@@ -10,18 +10,36 @@
 | `allowRemoteCompute` | `true` | 允许把算力路由到云端 |
 | `streamOnlyRemote` | `true` | remote 必须流式；非流式 remote 拒绝 |
 | `retainPayloads` | `false` | Hub 历史只留元数据，不落正文 |
-| `remoteRetainFiles` | `false` | 硬约束：远端不得保留文件（请求头告知） |
+| `remoteRetainFiles` | `false` | 硬约束：远端不得保留文件 |
 
-旧版「默认禁止离境」已废弃。隐私边界是**输出与落盘在本地**，不是禁止云算力。
+## 能力一览
 
-## 本版能力
+| 能力 ID | 说明 | Mock | 端侧 |
+|---------|------|------|------|
+| `echo.message` | 路由演示 | local / remote 流式 | 否 |
+| `llm.chat` | 对话补全（流式） | `/api/mock/caps/llm` | Ollama / OpenAI 兼容 |
+| `mail.send` | 发信 | `/api/mock/caps/mail` | SMTP / 邮件代理 |
+| `text.transform` | 摘要/改写/翻译 | `/api/mock/caps/text` | 可选 LLM |
+| `office.render` | 文档元数据+抽取 | `/api/mock/caps/office` | LibreOffice 等 |
+| `image.compose` | 模块化作图（流式） | `/api/mock/caps/image` | 画图引擎/远端 |
+| `home.control` | 家庭设备读写 | `/api/mock/caps/home` | Home Assistant |
 
-- 后端注册：`locality` + `supportsStreaming`
-- Data Policy：`GET/PATCH /api/policy`
-- 一元调用：`POST /api/invoke`（local；remote 在 streamOnly 下 403）
-- 流式调用：`POST /api/invoke/stream`（代理 SSE，边收边转本地；默认不持久化 chunk）
-- 结果中心：元数据；流式显示「已流式输出到本地 · 未保留正文」
-- Mock：local 一元；remote **仅** `/echo/stream` 流式
+目录 API：`GET /api/capabilities`。控制台顶部「能力目录」可一键试调。
+
+### 接真实服务（可选）
+
+```bash
+# LLM（OpenAI 兼容）— 占位探测；请将真实服务注册为 Backend 的 baseUrl
+export OPENAI_BASE_URL=http://127.0.0.1:11434/v1
+export OPENAI_API_KEY=ollama
+export OPENAI_MODEL=llama3.2
+
+# Home Assistant — 占位探测；真实调用请注册 HA 为 Backend
+export HA_BASE_URL=http://127.0.0.1:8123
+export HA_TOKEN=your_long_lived_token
+```
+
+类型与适配边界：`src/lib/capabilities/`。无 env 时一律走 mock。
 
 ## 本地运行
 
@@ -30,39 +48,38 @@ npm install
 npm run dev
 ```
 
-端口 `43127` → [http://127.0.0.1:43127](http://127.0.0.1:43127) 或 [http://localhost:43127](http://localhost:43127)（推荐用 `localhost`，避免部分环境下 HMR 告警）。
+[http://localhost:43127](http://localhost:43127)（端口 43127）
 
-
-## 演示：云算力 + 本地流式收看 + 无正文落盘
+## 试调示例
 
 ```bash
-# 1) 策略应为 allowRemoteCompute=true, retainPayloads=false
-curl http://127.0.0.1:43127/api/policy
+# 能力目录
+curl http://localhost:43127/api/capabilities
 
-# 2) remote 一元会被拒绝
-curl -i -X POST http://127.0.0.1:43127/api/invoke \
+# 文本处理（本地一元）
+curl -X POST http://localhost:43127/api/invoke \
   -H 'Content-Type: application/json' \
-  -d '{"backendId":"bk_remote_echo","path":"/echo","body":{"message":"no"}}'
+  -d '{"capability":"text.transform","body":{"op":"summarize","text":"Hello OpenAPIHub privacy-first hub."}}'
 
-# 3) 流式：边收边在控制台显示；Hub 只记元数据
-curl -N -X POST http://127.0.0.1:43127/api/invoke/stream \
+# LLM 流式（remote）
+curl -N -X POST http://localhost:43127/api/invoke/stream \
   -H 'Content-Type: application/json' \
-  -d '{"backendId":"bk_remote_echo","body":{"message":"hello cloud"}}'
+  -d '{"capability":"llm.chat","body":{"messages":[{"role":"user","content":"你好"}]}}'
 
-# 4) 历史无正文
-curl http://127.0.0.1:43127/api/invocations
+# 作图流式
+curl -N -X POST http://localhost:43127/api/invoke/stream \
+  -H 'Content-Type: application/json' \
+  -d '{"capability":"image.compose","body":{"template":"poster","layers":[{"type":"text","content":"Hi"}]}}'
 ```
-
-控制台：指定「远端 Echo（流式）」→ 点「流式调用」→ 看「本地实时收看」→ 结果中心摘要含「未保留正文」。
 
 ## 模块
 
 | 路径 | 职责 |
 |------|------|
+| `src/lib/capabilities/` | 目录、类型、可选适配占位 |
 | `src/lib/policy.ts` | Data Policy |
-| `src/lib/router.ts` | 策略门禁 + 一元/流式准备 |
-| `src/app/api/invoke/stream` | SSE 代理到本地 |
-| `src/app/api/mock/remote/echo/stream` | 远端流式 mock |
+| `src/lib/router.ts` | 策略门禁 + 一元/流式 |
+| `src/app/api/mock/caps/*` | 各能力 mock |
 | `src/components/console-app.tsx` | 控制台 |
 
 ## 技术栈

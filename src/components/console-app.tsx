@@ -11,6 +11,7 @@ import {
   Shield,
   Trash2,
 } from "lucide-react";
+import { CapabilityCatalogPanel } from "@/components/capability-catalog-panel";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import type { CapabilitySpec } from "@/lib/capabilities/catalog";
 import type { Backend, DataPolicy, Invocation, Locality } from "@/lib/types";
 
 type LoadState = "idle" | "loading" | "error";
@@ -81,12 +83,35 @@ export function ConsoleApp() {
   const [invokeError, setInvokeError] = useState("");
   const [lastResult, setLastResult] = useState<unknown>(null);
   const [streamLive, setStreamLive] = useState("");
+  const [catalog, setCatalog] = useState<CapabilitySpec[]>([]);
+  const [adapters, setAdapters] = useState({
+    openaiCompatible: false,
+    homeAssistant: false,
+  });
+  const [catalogLoading, setCatalogLoading] = useState(true);
 
   const selectedBackend = backends.find((b) => b.id === backendId);
   const useStream =
     routeMode === "backend"
       ? selectedBackend?.locality === "remote"
       : false;
+
+  const loadCatalog = useCallback(async () => {
+    setCatalogLoading(true);
+    try {
+      const res = await fetch("/api/capabilities", { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "加载能力目录失败");
+      setCatalog(data.capabilities ?? []);
+      setAdapters(
+        data.adapters ?? { openaiCompatible: false, homeAssistant: false },
+      );
+    } catch {
+      setCatalog([]);
+    } finally {
+      setCatalogLoading(false);
+    }
+  }, []);
 
   const loadPolicy = useCallback(async (opts?: { showLoading?: boolean }) => {
     if (opts?.showLoading) setPolicyState("loading");
@@ -146,6 +171,24 @@ export function ConsoleApp() {
     let cancelled = false;
     async function bootstrap() {
       try {
+        const res = await fetch("/api/capabilities", { cache: "no-store" });
+        const data = await res.json();
+        if (!cancelled && res.ok) {
+          setCatalog(data.capabilities ?? []);
+          setAdapters(
+            data.adapters ?? {
+              openaiCompatible: false,
+              homeAssistant: false,
+            },
+          );
+        }
+      } catch {
+        /* ignore */
+      } finally {
+        if (!cancelled) setCatalogLoading(false);
+      }
+
+      try {
         const res = await fetch("/api/policy", { cache: "no-store" });
         const data = await res.json();
         if (cancelled) return;
@@ -198,6 +241,29 @@ export function ConsoleApp() {
       cancelled = true;
     };
   }, []);
+
+  function tryCapability(spec: CapabilitySpec) {
+    setCapability(spec.id);
+    setInvokePath(spec.defaultPath);
+    setInvokeBody(JSON.stringify(spec.sampleBody, null, 2));
+    setInvokeError("");
+    setLastResult(null);
+    setStreamLive("");
+
+    const match = backends.find(
+      (b) => b.enabled && b.capabilities.includes(spec.id),
+    );
+    if (match) {
+      setRouteMode("backend");
+      setBackendId(match.id);
+    } else {
+      setRouteMode("capability");
+    }
+
+    document
+      .getElementById("invoke-panel")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   async function patchPolicy(
     patch: Partial<
@@ -406,18 +472,17 @@ export function ConsoleApp() {
         : { backendId, path: invokePath, method: "POST", body };
 
     try {
-      const stream =
-        useStream ||
-        (routeMode === "capability" &&
-          policy?.streamOnlyRemote &&
-          invokePath.includes("stream"));
-
+      const spec = catalog.find((c) => c.id === capability);
       const mustStream =
         (routeMode === "backend" && selectedBackend?.locality === "remote") ||
-        stream;
+        (routeMode === "capability" && Boolean(spec?.streamRequired)) ||
+        invokePath.includes("stream");
 
       if (mustStream) {
-        await invokeStream(base);
+        await invokeStream({
+          ...base,
+          ...(routeMode === "capability" ? { capability } : {}),
+        });
       } else {
         await invokeUnary(base);
       }
@@ -462,6 +527,7 @@ export function ConsoleApp() {
             <Button
               variant="outline"
               onClick={() => {
+                void loadCatalog();
                 void loadPolicy({ showLoading: true });
                 void loadBackends({ showLoading: true });
                 void loadInvocations({ showLoading: true });
@@ -475,6 +541,15 @@ export function ConsoleApp() {
       </header>
 
       <main className="mx-auto grid max-w-6xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-2">
+        <section className="space-y-6 lg:col-span-2">
+          <CapabilityCatalogPanel
+            capabilities={catalog}
+            adapters={adapters}
+            loading={catalogLoading}
+            onTry={tryCapability}
+          />
+        </section>
+
         <section className="space-y-6 lg:col-span-2">
           <Card className="border-teal-900/10 bg-white/85 shadow-sm">
             <CardHeader>
@@ -690,12 +765,13 @@ export function ConsoleApp() {
           </Card>
         </section>
 
-        <section className="space-y-6">
+        <section className="space-y-6" id="invoke-panel">
           <Card className="border-black/5 bg-white/80 shadow-sm">
             <CardHeader>
               <CardTitle>统一调用</CardTitle>
               <CardDescription>
-                选 remote → 自动走 <code className="text-xs">/api/invoke/stream</code>，边收边在本地显示。
+                从能力目录点「试调」可预填。remote / 强制流式能力走
+                <code className="text-xs"> /api/invoke/stream</code>。
               </CardDescription>
             </CardHeader>
             <CardContent>
