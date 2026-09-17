@@ -2,10 +2,12 @@ import {
   createId,
   getStore,
   nowIso,
+  STORE_SEED_VERSION,
 } from "@/lib/store";
 import type {
   Backend,
   CreateBackendInput,
+  Locality,
   UpdateBackendInput,
 } from "@/lib/types";
 
@@ -23,10 +25,16 @@ function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.trim().replace(/\/+$/, "");
 }
 
+function normalizeLocality(value: unknown): Locality {
+  return value === "remote" ? "remote" : "local";
+}
+
 export function seedDefaultBackends(origin: string): void {
   const store = getStore();
-  if (store.seeded) return;
+  if (store.seedVersion >= STORE_SEED_VERSION) return;
 
+  store.backends.clear();
+  store.invocations = [];
   const now = nowIso();
   const defaults: Backend[] = [
     {
@@ -34,15 +42,19 @@ export function seedDefaultBackends(origin: string): void {
       name: "本地 Echo（模拟）",
       baseUrl: `${origin}/api/mock/local`,
       capabilities: ["echo.message"],
+      locality: "local",
+      supportsStreaming: false,
       enabled: true,
       createdAt: now,
       updatedAt: now,
     },
     {
       id: "bk_remote_echo",
-      name: "远端 Echo（模拟）",
+      name: "远端 Echo（流式 · 模拟）",
       baseUrl: `${origin}/api/mock/remote`,
       capabilities: ["echo.message"],
+      locality: "remote",
+      supportsStreaming: true,
       enabled: true,
       createdAt: now,
       updatedAt: now,
@@ -52,7 +64,7 @@ export function seedDefaultBackends(origin: string): void {
   for (const backend of defaults) {
     store.backends.set(backend.id, backend);
   }
-  store.seeded = true;
+  store.seedVersion = STORE_SEED_VERSION;
 }
 
 export function listBackends(): Backend[] {
@@ -69,6 +81,9 @@ export function createBackend(input: CreateBackendInput): Backend {
   const name = input.name.trim();
   const baseUrl = normalizeBaseUrl(input.baseUrl);
   const capabilities = normalizeCapabilities(input.capabilities);
+  const locality = normalizeLocality(input.locality);
+  const supportsStreaming =
+    input.supportsStreaming ?? locality === "remote";
 
   if (!name) throw new Error("后端名称不能为空");
   if (!baseUrl) throw new Error("baseUrl 不能为空");
@@ -80,6 +95,8 @@ export function createBackend(input: CreateBackendInput): Backend {
     name,
     baseUrl,
     capabilities,
+    locality,
+    supportsStreaming,
     enabled: input.enabled ?? true,
     createdAt: now,
     updatedAt: now,
@@ -96,6 +113,11 @@ export function updateBackend(
   const existing = getBackend(id);
   if (!existing) throw new Error("后端不存在");
 
+  const locality =
+    input.locality !== undefined
+      ? normalizeLocality(input.locality)
+      : existing.locality;
+
   const next: Backend = {
     ...existing,
     name: input.name !== undefined ? input.name.trim() : existing.name,
@@ -107,6 +129,11 @@ export function updateBackend(
       input.capabilities !== undefined
         ? normalizeCapabilities(input.capabilities)
         : existing.capabilities,
+    locality,
+    supportsStreaming:
+      input.supportsStreaming !== undefined
+        ? Boolean(input.supportsStreaming)
+        : existing.supportsStreaming,
     enabled: input.enabled ?? existing.enabled,
     updatedAt: nowIso(),
   };

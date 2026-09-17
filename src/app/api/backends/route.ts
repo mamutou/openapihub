@@ -23,11 +23,17 @@ export async function POST(request: NextRequest) {
       : typeof body.capabilities === "string"
         ? body.capabilities.split(/[,，\s]+/)
         : [];
+    const locality = body.locality === "remote" ? "remote" : "local";
 
     const backend = createBackend({
       name: String(body.name ?? ""),
       baseUrl: String(body.baseUrl ?? ""),
       capabilities,
+      locality,
+      supportsStreaming:
+        body.supportsStreaming !== undefined
+          ? Boolean(body.supportsStreaming)
+          : locality === "remote",
       enabled: body.enabled !== false,
     });
 

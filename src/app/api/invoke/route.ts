@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { PolicyError } from "@/lib/policy";
 import { seedDefaultBackends } from "@/lib/registry";
 import { routeInvoke } from "@/lib/router";
 import type { InvokeRequest } from "@/lib/types";
@@ -33,6 +34,12 @@ export async function POST(request: NextRequest) {
       { status },
     );
   } catch (error) {
+    if (error instanceof PolicyError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: 403 },
+      );
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "调用失败" },
       { status: 400 },

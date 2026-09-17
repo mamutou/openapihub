@@ -37,6 +37,16 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       name: body.name !== undefined ? String(body.name) : undefined,
       baseUrl: body.baseUrl !== undefined ? String(body.baseUrl) : undefined,
       capabilities,
+      locality:
+        body.locality !== undefined
+          ? body.locality === "remote"
+            ? "remote"
+            : "local"
+          : undefined,
+      supportsStreaming:
+        body.supportsStreaming !== undefined
+          ? Boolean(body.supportsStreaming)
+          : undefined,
       enabled: body.enabled !== undefined ? Boolean(body.enabled) : undefined,
     });
 

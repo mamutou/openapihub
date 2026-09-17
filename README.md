@@ -1,62 +1,69 @@
 # OpenAPIHub
 
-统一的软件 API 调用与结果输出中枢：注册任意 API 化软件（本地或远端），按能力路由调用，并集中查看结果。
+统一的软件 API 调用与结果输出中枢。**算力可以上云；输出在本地；云端不留文件；remote 只走 API 流式。**
 
-## 本版能力（MVP）
+## 隐私模型（默认）
 
-- **后端注册表**：创建 / 列表 / 启停 / 删除（name、baseUrl、capabilities、enabled）
-- **统一调用**：`POST /api/invoke`，按 `capability` 或 `backendId` 转发到目标后端
-- **结果中心**：记录每次调用的状态、耗时与响应摘要
-- **控制台 UI**：管理后端、试调、查看结果（含空 / 加载 / 错误状态）
-- **内置 mock**：本地风格与远端风格各一个，共享能力 `echo.message`
+| 字段 | 默认 | 含义 |
+|------|------|------|
+| `preferLocal` | `false` | 可优先 local，**不禁止** remote |
+| `allowRemoteCompute` | `true` | 允许把算力路由到云端 |
+| `streamOnlyRemote` | `true` | remote 必须流式；非流式 remote 拒绝 |
+| `retainPayloads` | `false` | Hub 历史只留元数据，不落正文 |
+| `remoteRetainFiles` | `false` | 硬约束：远端不得保留文件（请求头告知） |
 
-内存存储，无鉴权、无数据库。
+旧版「默认禁止离境」已废弃。隐私边界是**输出与落盘在本地**，不是禁止云算力。
+
+## 本版能力
+
+- 后端注册：`locality` + `supportsStreaming`
+- Data Policy：`GET/PATCH /api/policy`
+- 一元调用：`POST /api/invoke`（local；remote 在 streamOnly 下 403）
+- 流式调用：`POST /api/invoke/stream`（代理 SSE，边收边转本地；默认不持久化 chunk）
+- 结果中心：元数据；流式显示「已流式输出到本地 · 未保留正文」
+- Mock：local 一元；remote **仅** `/echo/stream` 流式
 
 ## 本地运行
 
 ```bash
 npm install
-npm run dev -- --port 43127
+npm run dev
 ```
 
-打开 [http://127.0.0.1:43127](http://127.0.0.1:43127)。
+端口 `43127` → [http://127.0.0.1:43127](http://127.0.0.1:43127)
 
-## 快速试调
-
-1. 打开控制台，确认已预置「本地 Echo」与「远端 Echo」
-2. 在「统一调用」中选择「指定后端」，切换两个后端发起同一请求
-3. 在「结果中心」查看调用记录与响应摘要
-
-### API 示例
+## 演示：云算力 + 本地流式收看 + 无正文落盘
 
 ```bash
-# 列出后端
-curl http://127.0.0.1:43127/api/backends
+# 1) 策略应为 allowRemoteCompute=true, retainPayloads=false
+curl http://127.0.0.1:43127/api/policy
 
-# 按能力调用
-curl -X POST http://127.0.0.1:43127/api/invoke \
+# 2) remote 一元会被拒绝
+curl -i -X POST http://127.0.0.1:43127/api/invoke \
   -H 'Content-Type: application/json' \
-  -d '{"capability":"echo.message","path":"/echo","body":{"message":"hello"}}'
+  -d '{"backendId":"bk_remote_echo","path":"/echo","body":{"message":"no"}}'
 
-# 指定后端调用
-curl -X POST http://127.0.0.1:43127/api/invoke \
+# 3) 流式：边收边在控制台显示；Hub 只记元数据
+curl -N -X POST http://127.0.0.1:43127/api/invoke/stream \
   -H 'Content-Type: application/json' \
-  -d '{"backendId":"bk_remote_echo","path":"/echo","body":{"message":"hello"}}'
+  -d '{"backendId":"bk_remote_echo","body":{"message":"hello cloud"}}'
 
-# 调用历史
+# 4) 历史无正文
 curl http://127.0.0.1:43127/api/invocations
 ```
 
-## 模块边界
+控制台：指定「远端 Echo（流式）」→ 点「流式调用」→ 看「本地实时收看」→ 结果中心摘要含「未保留正文」。
 
-| 模块 | 路径 | 职责 |
-|------|------|------|
-| registry | `src/lib/registry.ts` | 后端 CRUD / 能力查找 |
-| router | `src/lib/router.ts` | 统一转发与错误记录 |
-| invocations | `src/lib/invocations.ts` | 调用历史 |
-| mock | `src/app/api/mock/*` | 本地 / 远端模拟后端 |
-| UI | `src/components/console-app.tsx` | 控制台 |
+## 模块
+
+| 路径 | 职责 |
+|------|------|
+| `src/lib/policy.ts` | Data Policy |
+| `src/lib/router.ts` | 策略门禁 + 一元/流式准备 |
+| `src/app/api/invoke/stream` | SSE 代理到本地 |
+| `src/app/api/mock/remote/echo/stream` | 远端流式 mock |
+| `src/components/console-app.tsx` | 控制台 |
 
 ## 技术栈
 
-Next.js · TypeScript · Tailwind CSS · shadcn/ui
+Next.js · TypeScript · Tailwind · shadcn/ui
