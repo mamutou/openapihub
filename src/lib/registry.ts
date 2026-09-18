@@ -2,6 +2,7 @@ import {
   createId,
   getStore,
   nowIso,
+  persistStore,
   STORE_SEED_VERSION,
 } from "@/lib/store";
 import type {
@@ -10,6 +11,18 @@ import type {
   Locality,
   UpdateBackendInput,
 } from "@/lib/types";
+
+/** Built-in mock backends: keep baseUrl in sync with current Hub origin. */
+const MOCK_BACKEND_PATHS: Record<string, string> = {
+  bk_local_echo: "/api/mock/local",
+  bk_remote_echo: "/api/mock/remote",
+  bk_mock_llm: "/api/mock/caps/llm",
+  bk_mock_mail: "/api/mock/caps/mail",
+  bk_mock_text: "/api/mock/caps/text",
+  bk_mock_office: "/api/mock/caps/office",
+  bk_mock_image: "/api/mock/caps/image",
+  bk_mock_home: "/api/mock/caps/home",
+};
 
 function normalizeCapabilities(capabilities: string[]): string[] {
   return [
@@ -29,14 +42,8 @@ function normalizeLocality(value: unknown): Locality {
   return value === "remote" ? "remote" : "local";
 }
 
-export function seedDefaultBackends(origin: string): void {
-  const store = getStore();
-  if (store.seedVersion >= STORE_SEED_VERSION) return;
-
-  store.backends.clear();
-  // Keep invocation history across seed upgrades / HMR module reloads
-  const now = nowIso();
-  const defaults: Backend[] = [
+function buildDefaultBackends(origin: string, now: string): Backend[] {
+  return [
     {
       id: "bk_local_echo",
       name: "本地 Echo（模拟）",
@@ -126,11 +133,53 @@ export function seedDefaultBackends(origin: string): void {
       updatedAt: now,
     },
   ];
+}
 
-  for (const backend of defaults) {
-    store.backends.set(backend.id, backend);
+function refreshMockOrigins(origin: string): boolean {
+  const store = getStore();
+  const now = nowIso();
+  let changed = false;
+  for (const [id, suffix] of Object.entries(MOCK_BACKEND_PATHS)) {
+    const backend = store.backends.get(id);
+    if (!backend) continue;
+    const nextUrl = `${origin}${suffix}`;
+    if (backend.baseUrl !== nextUrl) {
+      store.backends.set(id, {
+        ...backend,
+        baseUrl: nextUrl,
+        updatedAt: now,
+      });
+      changed = true;
+    }
   }
+  return changed;
+}
+
+/**
+ * Ensure defaults exist. With file persistence, user backends survive restarts;
+ * built-in mock IDs only get origin URL refresh (not wiped).
+ */
+export function seedDefaultBackends(origin: string): void {
+  const store = getStore();
+  const base = origin.replace(/\/+$/, "");
+
+  if (store.seedVersion >= STORE_SEED_VERSION && store.backends.size > 0) {
+    if (refreshMockOrigins(base)) persistStore();
+    return;
+  }
+
+  // First boot or empty store after seed bump: install mocks without wiping
+  // user-created backends (ids not in MOCK_BACKEND_PATHS).
+  const now = nowIso();
+  const defaults = buildDefaultBackends(base, now);
+  for (const backend of defaults) {
+    if (!store.backends.has(backend.id)) {
+      store.backends.set(backend.id, backend);
+    }
+  }
+  refreshMockOrigins(base);
   store.seedVersion = STORE_SEED_VERSION;
+  persistStore();
 }
 
 export function listBackends(): Backend[] {
@@ -169,6 +218,7 @@ export function createBackend(input: CreateBackendInput): Backend {
   };
 
   getStore().backends.set(backend.id, backend);
+  persistStore();
   return backend;
 }
 
@@ -211,11 +261,14 @@ export function updateBackend(
   }
 
   getStore().backends.set(id, next);
+  persistStore();
   return next;
 }
 
 export function deleteBackend(id: string): boolean {
-  return getStore().backends.delete(id);
+  const ok = getStore().backends.delete(id);
+  if (ok) persistStore();
+  return ok;
 }
 
 export function findBackendsByCapability(capability: string): Backend[] {

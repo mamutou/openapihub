@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { authorizeHubRequest } from "@/lib/auth";
 import {
   createBackend,
   listBackends,
@@ -10,11 +11,15 @@ function ensureSeeded(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
+  const denied = authorizeHubRequest(request);
+  if (denied) return denied;
   ensureSeeded(request);
   return NextResponse.json({ backends: listBackends() });
 }
 
 export async function POST(request: NextRequest) {
+  const denied = authorizeHubRequest(request);
+  if (denied) return denied;
   ensureSeeded(request);
   try {
     const body = await request.json();

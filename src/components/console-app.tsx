@@ -27,6 +27,12 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import type { CapabilitySpec } from "@/lib/capabilities/catalog";
+import {
+  getHubApiToken,
+  hubFetch,
+  setHubApiToken,
+} from "@/lib/hub-client";
+import type { SuggestedBackend } from "@/lib/suggestions";
 import type { Backend, DataPolicy, Invocation, Locality } from "@/lib/types";
 import { parseSseBlocks } from "@/lib/sse";
 
@@ -72,7 +78,12 @@ export function ConsoleApp() {
     openaiCompatible: false,
     homeAssistant: false,
   });
+  const [suggestions, setSuggestions] = useState<SuggestedBackend[]>([]);
+  const [suggesting, setSuggesting] = useState(false);
   const [catalogLoading, setCatalogLoading] = useState(true);
+  const [authRequired, setAuthRequired] = useState(false);
+  const [hubToken, setHubToken] = useState(() => getHubApiToken());
+  const [tokenDraft, setTokenDraft] = useState(() => getHubApiToken());
 
   const selectedBackend = backends.find((b) => b.id === backendId);
   const useStream =
@@ -83,13 +94,15 @@ export function ConsoleApp() {
   const loadCatalog = useCallback(async () => {
     setCatalogLoading(true);
     try {
-      const res = await fetch("/api/capabilities", { cache: "no-store" });
+      const res = await hubFetch("/api/capabilities", { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "加载能力目录失败");
       setCatalog(data.capabilities ?? []);
       setAdapters(
         data.adapters ?? { openaiCompatible: false, homeAssistant: false },
       );
+      setSuggestions(data.suggestions ?? []);
+      setAuthRequired(Boolean(data.authRequired));
     } catch {
       setCatalog([]);
     } finally {
@@ -100,10 +113,13 @@ export function ConsoleApp() {
   const loadPolicy = useCallback(async (opts?: { showLoading?: boolean }) => {
     if (opts?.showLoading) setPolicyState("loading");
     try {
-      const res = await fetch("/api/policy", { cache: "no-store" });
+      const res = await hubFetch("/api/policy", { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "加载策略失败");
       setPolicy(data.policy);
+      if (typeof data.authRequired === "boolean") {
+        setAuthRequired(data.authRequired);
+      }
       setPolicyError("");
       setPolicyState("idle");
     } catch (error) {
@@ -115,7 +131,7 @@ export function ConsoleApp() {
   const loadBackends = useCallback(async (opts?: { showLoading?: boolean }) => {
     if (opts?.showLoading) setBackendsState("loading");
     try {
-      const res = await fetch("/api/backends", { cache: "no-store" });
+      const res = await hubFetch("/api/backends", { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "加载后端失败");
       const list: Backend[] = data.backends ?? [];
@@ -133,7 +149,7 @@ export function ConsoleApp() {
     async (opts?: { showLoading?: boolean }) => {
       if (opts?.showLoading) setInvocationsState("loading");
       try {
-        const res = await fetch("/api/invocations?limit=40", {
+        const res = await hubFetch("/api/invocations?limit=40", {
           cache: "no-store",
         });
         const data = await res.json();
@@ -155,7 +171,7 @@ export function ConsoleApp() {
     let cancelled = false;
     async function bootstrap() {
       try {
-        const res = await fetch("/api/capabilities", { cache: "no-store" });
+        const res = await hubFetch("/api/capabilities", { cache: "no-store" });
         const data = await res.json();
         if (!cancelled && res.ok) {
           setCatalog(data.capabilities ?? []);
@@ -165,6 +181,8 @@ export function ConsoleApp() {
               homeAssistant: false,
             },
           );
+          setSuggestions(data.suggestions ?? []);
+          setAuthRequired(Boolean(data.authRequired));
         }
       } catch {
         /* ignore */
@@ -173,11 +191,14 @@ export function ConsoleApp() {
       }
 
       try {
-        const res = await fetch("/api/policy", { cache: "no-store" });
+        const res = await hubFetch("/api/policy", { cache: "no-store" });
         const data = await res.json();
         if (cancelled) return;
         if (!res.ok) throw new Error(data.error || "加载策略失败");
         setPolicy(data.policy);
+        if (typeof data.authRequired === "boolean") {
+          setAuthRequired(data.authRequired);
+        }
         setPolicyState("idle");
       } catch (error) {
         if (cancelled) return;
@@ -185,7 +206,7 @@ export function ConsoleApp() {
         setPolicyError(error instanceof Error ? error.message : "加载策略失败");
       }
       try {
-        const res = await fetch("/api/backends", { cache: "no-store" });
+        const res = await hubFetch("/api/backends", { cache: "no-store" });
         const data = await res.json();
         if (cancelled) return;
         if (!res.ok) throw new Error(data.error || "加载后端失败");
@@ -206,7 +227,9 @@ export function ConsoleApp() {
         setBackendsError(error instanceof Error ? error.message : "加载后端失败");
       }
       try {
-        const res = await fetch("/api/invocations?limit=40", { cache: "no-store" });
+        const res = await hubFetch("/api/invocations?limit=40", {
+          cache: "no-store",
+        });
         const data = await res.json();
         if (cancelled) return;
         if (!res.ok) throw new Error(data.error || "加载调用记录失败");
@@ -224,7 +247,7 @@ export function ConsoleApp() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [hubToken]);
 
   function tryCapability(spec: CapabilitySpec) {
     setCapability(spec.id);
@@ -264,6 +287,48 @@ export function ConsoleApp() {
       ?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
+  function saveToken() {
+    setHubApiToken(tokenDraft);
+    setHubToken(tokenDraft.trim());
+  }
+
+  async function addSuggestedBackend(suggestion: SuggestedBackend) {
+    setSuggesting(true);
+    setFormError("");
+    try {
+      const exists = backends.some(
+        (b) =>
+          b.baseUrl === suggestion.baseUrl.replace(/\/+$/, "") &&
+          suggestion.capabilities.every((c) => b.capabilities.includes(c)),
+      );
+      if (exists) {
+        setFormError("已存在相同 baseUrl 的 Backend，无需重复添加");
+        return;
+      }
+      const res = await hubFetch("/api/backends", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: suggestion.name,
+          baseUrl: suggestion.baseUrl,
+          capabilities: suggestion.capabilities,
+          locality: suggestion.locality,
+          supportsStreaming: suggestion.supportsStreaming,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "添加建议 Backend 失败");
+      await loadBackends();
+      if (data.backend?.id) setBackendId(data.backend.id);
+    } catch (error) {
+      setFormError(
+        error instanceof Error ? error.message : "添加建议 Backend 失败",
+      );
+    } finally {
+      setSuggesting(false);
+    }
+  }
+
   async function patchPolicy(
     patch: Partial<
       Pick<
@@ -275,7 +340,7 @@ export function ConsoleApp() {
     setPolicySaving(true);
     setPolicyError("");
     try {
-      const res = await fetch("/api/policy", {
+      const res = await hubFetch("/api/policy", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patch),
@@ -295,7 +360,7 @@ export function ConsoleApp() {
     setCreating(true);
     setFormError("");
     try {
-      const res = await fetch("/api/backends", {
+      const res = await hubFetch("/api/backends", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -325,7 +390,7 @@ export function ConsoleApp() {
   async function toggleEnabled(backend: Backend) {
     setBusyId(backend.id);
     try {
-      const res = await fetch(`/api/backends/${backend.id}`, {
+      const res = await hubFetch(`/api/backends/${backend.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled: !backend.enabled }),
@@ -343,7 +408,7 @@ export function ConsoleApp() {
   async function removeBackend(id: string) {
     setBusyId(id);
     try {
-      const res = await fetch(`/api/backends/${id}`, { method: "DELETE" });
+      const res = await hubFetch(`/api/backends/${id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "删除失败");
       if (backendId === id) setBackendId("");
@@ -356,7 +421,7 @@ export function ConsoleApp() {
   }
 
   async function invokeUnary(payload: object) {
-    const res = await fetch("/api/invoke", {
+    const res = await hubFetch("/api/invoke", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -373,7 +438,7 @@ export function ConsoleApp() {
 
   async function invokeStream(payload: object) {
     setStreamLive("");
-    const res = await fetch("/api/invoke/stream", {
+    const res = await hubFetch("/api/invoke/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -492,6 +557,11 @@ export function ConsoleApp() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {authRequired && (
+              <Badge variant={hubToken ? "default" : "destructive"}>
+                {hubToken ? "已配置 Token" : "需要 HUB_API_TOKEN"}
+              </Badge>
+            )}
             {policy && (
               <>
                 <Badge variant={policy.allowRemoteCompute ? "default" : "secondary"}>
@@ -521,12 +591,48 @@ export function ConsoleApp() {
       </header>
 
       <main className="mx-auto grid max-w-6xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-2">
+        {(authRequired || hubToken) && (
+          <section className="space-y-3 lg:col-span-2">
+            <Card className="border-teal-900/10 bg-white/85 shadow-sm">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">本机 API Token</CardTitle>
+                <CardDescription>
+                  对应环境变量 <code className="text-xs">HUB_API_TOKEN</code>
+                  。写入 sessionStorage，仅本浏览器标签页有效；未设置服务端
+                  token 时可留空。
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <Label htmlFor="hub-token">Bearer Token</Label>
+                  <Input
+                    id="hub-token"
+                    type="password"
+                    autoComplete="off"
+                    placeholder={
+                      authRequired ? "必填：与 HUB_API_TOKEN 一致" : "可选"
+                    }
+                    value={tokenDraft}
+                    onChange={(e) => setTokenDraft(e.target.value)}
+                  />
+                </div>
+                <Button type="button" onClick={saveToken}>
+                  保存到本页
+                </Button>
+              </CardContent>
+            </Card>
+          </section>
+        )}
+
         <section className="space-y-6 lg:col-span-2">
           <CapabilityCatalogPanel
             capabilities={catalog}
             adapters={adapters}
+            suggestions={suggestions}
             loading={catalogLoading}
+            suggesting={suggesting}
             onTry={tryCapability}
+            onAddSuggestion={addSuggestedBackend}
           />
         </section>
 

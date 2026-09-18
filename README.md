@@ -1,8 +1,10 @@
-# OpenAPIHub
+# OpenAPIHub — 个人可部署最小包
 
 统一的软件 API 调用与结果输出中枢。**算力可以上云；输出在本地；云端不留文件；remote 只走 API 流式。**
 
-## 隐私模型（默认）
+适合本机长期自用，不是企业多租户生产。
+
+## 隐私模型（默认 · P0 硬门）
 
 | 字段 | 默认 | 含义 |
 |------|------|------|
@@ -12,74 +14,118 @@
 | `retainPayloads` | `false` | Hub 历史只留元数据，不落正文 |
 | `remoteRetainFiles` | `false`（硬约束） | 远端不得保留文件 |
 
+状态默认写到 `data/hub-state.json`（backends / policy / 最近调用元数据）。`.gitignore` 已忽略 `data/` 与 `.env*`。
+
+## 本机部署（推荐）
+
+```bash
+npm install
+cp .env.example .env   # 按需编辑
+npm run build
+npm start              # http://127.0.0.1:43127
+```
+
+开发模式：
+
+```bash
+npm run dev            # 同端口 43127
+```
+
+可选 Docker（单容器）：
+
+```bash
+docker build -t openapihub .
+docker run --rm -p 43127:43127 \
+  -v "$(pwd)/data:/app/data" \
+  -e HUB_API_TOKEN=change-me \
+  openapihub
+```
+
+健康检查：`GET /api/health`。
+
+## 环境变量
+
+见 `.env.example`。常用项：
+
+| 变量 | 说明 |
+|------|------|
+| `HUB_API_TOKEN` | 可选。设置后，invoke / 管理 API 需 `Authorization: Bearer …` |
+| `HUB_DATA_DIR` | 状态目录，默认 `./data` |
+| `HUB_INVOCATION_LIMIT` | 保留的调用元数据条数，默认 `200` |
+| `UNARY_TIMEOUT_MS` / `STREAM_CONNECT_TIMEOUT_MS` | 上游超时 |
+| `OPENAI_BASE_URL` / `OPENAI_API_KEY` | **仅探测**；不代发。用于「添加建议 Backend」预填 |
+| `HA_BASE_URL` / `HA_TOKEN` | 同上（Home Assistant） |
+
+控制台：若启用了 `HUB_API_TOKEN`，在页顶输入 token（存 sessionStorage）。
+
+## 接真实服务（仍不强制代发）
+
+Hub **不会**用你的 `OPENAI_API_KEY` / `HA_TOKEN` 代发请求。正确做法是把可直连的服务注册为 Backend：
+
+### Ollama / OpenAI 兼容 → `llm.chat`
+
+1. 本机跑 Ollama（或任意 OpenAI 兼容网关），例如 `http://127.0.0.1:11434/v1`。
+2. 在控制台「注册 Backend」：
+   - baseUrl：`http://127.0.0.1:11434/v1`（或你的网关）
+   - capabilities：`llm.chat`
+   - locality：本机填 `local`；公网填 `remote` 且须支持流式
+   - path 试调：`/chat/completions` 或按你的服务路径（mock 用 `/chat/stream`）
+3. 若已配置 `OPENAI_*`，能力目录会出现「添加建议 Backend」一键预填 baseUrl（仍不代持密钥）。
+
+> 注意：当前 Hub 以「转发到 Backend.baseUrl + path」为主。若上游需要 `Authorization: Bearer <key>`，请在上游网关侧终结密钥，或使用已带鉴权的本地代理；本包不为密钥做代持转发。
+
+### Home Assistant → `home.control`
+
+1. 开启 HA 长期访问令牌；API 基址如 `http://127.0.0.1:8123`。
+2. 注册 Backend：`capabilities: home.control`，path 按你的代理约定（mock 为 `/control`）。
+3. 密钥留在 HA / 本地代理；Hub 只存 baseUrl。
+
 ## 能力一览
 
 | 能力 ID | 说明 | Mock | 端侧 |
 |---------|------|------|------|
 | `echo.message` | 路由演示 | local / remote 流式 | 否 |
-| `llm.chat` | 对话补全（流式） | `/api/mock/caps/llm` | Ollama / OpenAI 兼容 |
+| `llm.chat` | 对话补全（强制流式） | `/api/mock/caps/llm` | Ollama / OpenAI 兼容 |
 | `mail.send` | 发信 | `/api/mock/caps/mail` | SMTP / 邮件代理 |
 | `text.transform` | 摘要/改写/翻译 | `/api/mock/caps/text` | 可选 LLM |
 | `office.render` | 文档元数据+抽取 | `/api/mock/caps/office` | LibreOffice 等 |
-| `image.compose` | 模块化作图（流式） | `/api/mock/caps/image` | 画图引擎/远端 |
+| `image.compose` | 模块化作图（强制流式） | `/api/mock/caps/image` | 画图引擎/远端 |
 | `home.control` | 家庭设备读写 | `/api/mock/caps/home` | Home Assistant |
 
-目录 API：`GET /api/capabilities`。控制台顶部「能力目录」可一键试调。
-
-### 接真实服务（可选）
-
-```bash
-# LLM（OpenAI 兼容）— 占位探测；请将真实服务注册为 Backend 的 baseUrl
-export OPENAI_BASE_URL=http://127.0.0.1:11434/v1
-export OPENAI_API_KEY=ollama
-export OPENAI_MODEL=llama3.2
-
-# Home Assistant — 占位探测；真实调用请注册 HA 为 Backend
-export HA_BASE_URL=http://127.0.0.1:8123
-export HA_TOKEN=your_long_lived_token
-```
-
-适配器状态（仅探测 env，不代发）：`GET /api/capabilities` 的 `adapters` 字段。真实 LLM/HA 请注册为 Backend。
-
-## 本地运行
-
-```bash
-npm install
-npm run dev
-```
-
-[http://localhost:43127](http://localhost:43127)（端口 43127）
+目录 API：`GET /api/capabilities`（公开，含 `authRequired` / `suggestions`）。
 
 ## 试调示例
 
 ```bash
-# 能力目录
-curl http://localhost:43127/api/capabilities
+# 未设置 HUB_API_TOKEN 时
+curl http://127.0.0.1:43127/api/capabilities
 
-# 文本处理（本地一元）
-curl -X POST http://localhost:43127/api/invoke \
+curl -X POST http://127.0.0.1:43127/api/invoke \
   -H 'Content-Type: application/json' \
-  -d '{"capability":"text.transform","body":{"op":"summarize","text":"Hello OpenAPIHub privacy-first hub."}}'
+  -d '{"capability":"text.transform","body":{"op":"summarize","text":"Hello OpenAPIHub."}}'
 
-# LLM 流式（remote）
-curl -N -X POST http://localhost:43127/api/invoke/stream \
+curl -N -X POST http://127.0.0.1:43127/api/invoke/stream \
   -H 'Content-Type: application/json' \
   -d '{"capability":"llm.chat","body":{"messages":[{"role":"user","content":"你好"}]}}'
 
-# 作图流式
-curl -N -X POST http://localhost:43127/api/invoke/stream \
-  -H 'Content-Type: application/json' \
-  -d '{"capability":"image.compose","body":{"template":"poster","layers":[{"type":"text","content":"Hi"}]}}'
+# 设置了 HUB_API_TOKEN 时加头
+curl -H "Authorization: Bearer $HUB_API_TOKEN" http://127.0.0.1:43127/api/backends
 ```
+
+## 限制（个人包）
+
+- 单机文件状态，无多租户 / OAuth / HA
+- 不代持 LLM/HA 密钥做云端转发
+- 无插件市场；能力靠自注册 Backend + mock
 
 ## 模块
 
 | 路径 | 职责 |
 |------|------|
-| `src/lib/capabilities/` | 目录、类型、可选适配占位 |
-| `src/lib/policy.ts` | Data Policy |
-| `src/lib/router.ts` | 策略门禁 + 一元/流式 |
-| `src/app/api/mock/caps/*` | 各能力 mock |
+| `src/lib/persist.ts` | `data/hub-state.json` |
+| `src/lib/auth.ts` | 可选 Bearer |
+| `src/lib/capabilities/` | 目录与探测 |
+| `src/lib/policy.ts` / `router.ts` | Data Policy + P0 硬门 |
 | `src/components/console-app.tsx` | 控制台 |
 
 ## 技术栈

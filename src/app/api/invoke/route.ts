@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { authorizeHubRequest } from "@/lib/auth";
 import { PolicyError } from "@/lib/policy";
 import { seedDefaultBackends } from "@/lib/registry";
 import { routeInvoke } from "@/lib/router";
 import type { InvokeRequest } from "@/lib/types";
 
 export async function POST(request: NextRequest) {
+  const denied = authorizeHubRequest(request);
+  if (denied) return denied;
   seedDefaultBackends(request.nextUrl.origin);
 
   let body: InvokeRequest;

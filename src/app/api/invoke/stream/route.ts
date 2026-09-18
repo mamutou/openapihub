@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { authorizeHubRequest } from "@/lib/auth";
 import {
   STREAM_CONNECT_TIMEOUT_MS,
   abortErrorMessage,
@@ -23,6 +24,8 @@ import type { InvokeRequest } from "@/lib/types";
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
+  const denied = authorizeHubRequest(request);
+  if (denied) return denied;
   seedDefaultBackends(request.nextUrl.origin);
 
   let body: InvokeRequest;

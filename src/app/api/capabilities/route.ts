@@ -1,12 +1,14 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { isHubAuthRequired } from "@/lib/auth";
 import {
   hasHomeAssistantConfig,
   hasOpenAiCompatibleConfig,
   listCapabilityCatalog,
 } from "@/lib/capabilities";
 import { seedDefaultBackends } from "@/lib/registry";
-import { NextRequest } from "next/server";
+import { listSuggestedBackends } from "@/lib/suggestions";
 
+/** Public probe — no Bearer required (so console can detect authRequired). */
 export async function GET(request: NextRequest) {
   seedDefaultBackends(request.nextUrl.origin);
   return NextResponse.json({
@@ -15,5 +17,8 @@ export async function GET(request: NextRequest) {
       openaiCompatible: hasOpenAiCompatibleConfig(),
       homeAssistant: hasHomeAssistantConfig(),
     },
+    suggestions: listSuggestedBackends(),
+    authRequired: isHubAuthRequired(),
+    note: "adapters 仅探测环境变量，Hub 不代发密钥；suggestions 可一键预填 Backend（仍不代持密钥）。",
   });
 }

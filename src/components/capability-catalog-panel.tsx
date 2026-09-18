@@ -11,19 +11,26 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import type { CapabilitySpec } from "@/lib/capabilities/catalog";
+import type { SuggestedBackend } from "@/lib/suggestions";
 
 type Props = {
   capabilities: CapabilitySpec[];
   adapters: { openaiCompatible: boolean; homeAssistant: boolean };
+  suggestions?: SuggestedBackend[];
   loading?: boolean;
+  suggesting?: boolean;
   onTry: (spec: CapabilitySpec) => void;
+  onAddSuggestion?: (suggestion: SuggestedBackend) => void;
 };
 
 export function CapabilityCatalogPanel({
   capabilities,
   adapters,
+  suggestions = [],
   loading,
+  suggesting,
   onTry,
+  onAddSuggestion,
 }: Props) {
   return (
     <Card className="border-teal-900/10 bg-white/85 shadow-sm">
@@ -38,7 +45,10 @@ export function CapabilityCatalogPanel({
         </CardDescription>
         <div className="space-y-1 pt-1 text-xs text-muted-foreground">
           <p>
-            适配器状态（<strong className="font-medium text-slate-700">仅探测 env，不代发请求</strong>
+            适配器状态（
+            <strong className="font-medium text-slate-700">
+              仅探测 env，不代发请求
+            </strong>
             ；真实调用请自行注册 Backend baseUrl）：
           </p>
           <div className="flex flex-wrap gap-2">
@@ -56,6 +66,33 @@ export function CapabilityCatalogPanel({
                 : "未配置"}
             </span>
           </div>
+          {suggestions.length > 0 && onAddSuggestion && (
+            <div className="flex flex-col gap-2 pt-2">
+              {suggestions.map((s) => (
+                <div
+                  key={`${s.capabilities.join(",")}-${s.baseUrl}`}
+                  className="flex flex-wrap items-center gap-2 rounded-lg border border-teal-800/15 bg-teal-50/50 px-2.5 py-2"
+                >
+                  <div className="min-w-0 flex-1 text-[11px] leading-snug text-slate-700">
+                    <p className="font-medium text-slate-900">{s.name}</p>
+                    <p className="font-mono text-[10px] text-slate-500">
+                      {s.baseUrl}
+                    </p>
+                    <p className="text-amber-900/80">{s.reason}</p>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    disabled={suggesting}
+                    onClick={() => onAddSuggestion(s)}
+                  >
+                    添加建议 Backend
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </CardHeader>
       <CardContent>

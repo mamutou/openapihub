@@ -1,4 +1,4 @@
-import { getStore } from "@/lib/store";
+import { getStore, persistStore } from "@/lib/store";
 import type { DataPolicy, DataPolicyFlags } from "@/lib/types";
 
 /**
@@ -82,6 +82,7 @@ export function updateDataPolicy(
         : store.policy.byCapability,
   };
   store.policy = next;
+  persistStore();
   return next;
 }
 

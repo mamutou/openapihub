@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { authorizeHubRequest } from "@/lib/auth";
 import {
   deleteBackend,
   getBackend,
@@ -13,6 +14,8 @@ function ensureSeeded(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest, { params }: Params) {
+  const denied = authorizeHubRequest(request);
+  if (denied) return denied;
   ensureSeeded(request);
   const { id } = await params;
   const backend = getBackend(id);
@@ -23,6 +26,8 @@ export async function GET(request: NextRequest, { params }: Params) {
 }
 
 export async function PATCH(request: NextRequest, { params }: Params) {
+  const denied = authorizeHubRequest(request);
+  if (denied) return denied;
   ensureSeeded(request);
   const { id } = await params;
   try {
@@ -59,6 +64,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 }
 
 export async function DELETE(request: NextRequest, { params }: Params) {
+  const denied = authorizeHubRequest(request);
+  if (denied) return denied;
   ensureSeeded(request);
   const { id } = await params;
   const ok = deleteBackend(id);

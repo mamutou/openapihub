@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
+import { authorizeHubRequest, isHubAuthRequired } from "@/lib/auth";
 import { getDataPolicy, updateDataPolicy } from "@/lib/policy";
 import { seedDefaultBackends } from "@/lib/registry";
 
 export async function GET(request: NextRequest) {
+  const denied = authorizeHubRequest(request);
+  if (denied) return denied;
   seedDefaultBackends(request.nextUrl.origin);
   const policy = getDataPolicy();
   return NextResponse.json({
     policy,
+    authRequired: isHubAuthRequired(),
     hardConstraints: {
       streamOnlyRemote: true,
       remoteRetainFiles: false,
@@ -16,6 +20,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  const denied = authorizeHubRequest(request);
+  if (denied) return denied;
   seedDefaultBackends(request.nextUrl.origin);
   try {
     const body = await request.json();
@@ -40,6 +46,7 @@ export async function PATCH(request: NextRequest) {
     });
     return NextResponse.json({
       policy,
+      authRequired: isHubAuthRequired(),
       hardConstraints: {
         streamOnlyRemote: true,
         remoteRetainFiles: false,

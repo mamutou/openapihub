@@ -1,8 +1,17 @@
 /** Upstream fetch timeouts / abort helpers (injectable for tests). */
 
-export const UNARY_TIMEOUT_MS = 30_000;
+function envMs(name: string, fallback: number): number {
+  const n = Number(process.env[name]);
+  if (Number.isFinite(n) && n >= 1_000) return Math.floor(n);
+  return fallback;
+}
+
+export const UNARY_TIMEOUT_MS = envMs("UNARY_TIMEOUT_MS", 30_000);
 /** Time allowed to establish the upstream stream connection (not full stream duration). */
-export const STREAM_CONNECT_TIMEOUT_MS = 60_000;
+export const STREAM_CONNECT_TIMEOUT_MS = envMs(
+  "STREAM_CONNECT_TIMEOUT_MS",
+  60_000,
+);
 
 export function createTimeoutSignal(
   ms: number,

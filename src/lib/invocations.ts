@@ -1,4 +1,4 @@
-import { createId, getStore, nowIso } from "@/lib/store";
+import { createId, getStore, nowIso, persistStore } from "@/lib/store";
 import type {
   Invocation,
   InvocationMode,
@@ -6,7 +6,11 @@ import type {
   Locality,
 } from "@/lib/types";
 
-const MAX_INVOCATIONS = 200;
+function maxInvocations(): number {
+  const n = Number(process.env.HUB_INVOCATION_LIMIT);
+  if (Number.isFinite(n) && n >= 1) return Math.floor(n);
+  return 200;
+}
 
 export function listInvocations(limit = 50): Invocation[] {
   return getStore().invocations.slice(0, Math.max(1, limit));
@@ -61,9 +65,11 @@ export function recordInvocation(input: {
 
   const store = getStore();
   store.invocations.unshift(invocation);
-  if (store.invocations.length > MAX_INVOCATIONS) {
-    store.invocations.length = MAX_INVOCATIONS;
+  const limit = maxInvocations();
+  if (store.invocations.length > limit) {
+    store.invocations.length = limit;
   }
+  persistStore();
 
   return invocation;
 }
