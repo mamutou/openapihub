@@ -9,6 +9,8 @@ export type Backend = {
   /** remote 在 streamOnlyRemote 下必须为 true */
   supportsStreaming: boolean;
   enabled: boolean;
+  /** Optional link to a Device (hardware node) */
+  deviceId?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -20,6 +22,7 @@ export type CreateBackendInput = {
   locality: Locality;
   supportsStreaming?: boolean;
   enabled?: boolean;
+  deviceId?: string;
 };
 
 export type UpdateBackendInput = {
@@ -29,6 +32,7 @@ export type UpdateBackendInput = {
   locality?: Locality;
   supportsStreaming?: boolean;
   enabled?: boolean;
+  deviceId?: string | null;
 };
 
 export type DataPolicyFlags = {
@@ -67,6 +71,9 @@ export type Invocation = {
   errorCode?: string;
   createdAt: string;
   durationMs: number;
+  /** Optional scheduler explanation when capability-routed */
+  scheduleReason?: string;
+  deviceId?: string;
 };
 
 export type InvokeRequest = {
@@ -75,4 +82,60 @@ export type InvokeRequest = {
   path?: string;
   method?: string;
   body?: unknown;
+};
+
+export type DeviceTransport = "http" | "mock";
+export type DeviceDiscovery = "manual" | "mock";
+export type DeviceStatus =
+  | "online"
+  | "offline"
+  | "unhealthy"
+  | "disabled"
+  | "unplugged";
+
+export type Device = {
+  id: string;
+  name: string;
+  transport: DeviceTransport;
+  baseUrl: string;
+  status: DeviceStatus;
+  lastSeen?: string;
+  capabilities: string[];
+  hardwareProfileId: string;
+  /** Linked Backend used by router/scheduler */
+  backendId?: string;
+  discovery: DeviceDiscovery;
+  /** Mock hot-plug: false = physically removed */
+  pluggedIn: boolean;
+  enabled: boolean;
+  /** Soft latency hint for scoring (ms) */
+  latencyHintMs: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CreateDeviceInput = {
+  name: string;
+  transport?: DeviceTransport;
+  baseUrl: string;
+  capabilities: string[];
+  hardwareProfileId: string;
+  discovery?: DeviceDiscovery;
+  pluggedIn?: boolean;
+  enabled?: boolean;
+  latencyHintMs?: number;
+  /** When true, auto-create + bind a Backend */
+  bindBackend?: boolean;
+};
+
+export type UpdateDeviceInput = {
+  name?: string;
+  baseUrl?: string;
+  capabilities?: string[];
+  hardwareProfileId?: string;
+  pluggedIn?: boolean;
+  enabled?: boolean;
+  latencyHintMs?: number;
+  status?: DeviceStatus;
+  backendId?: string | null;
 };

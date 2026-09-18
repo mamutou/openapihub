@@ -5,12 +5,12 @@ import {
   hasOpenAiCompatibleConfig,
   listCapabilityCatalog,
 } from "@/lib/capabilities";
-import { seedDefaultBackends } from "@/lib/registry";
+import { ensureHubSeeded } from "@/lib/seed";
 import { listSuggestedBackends } from "@/lib/suggestions";
 
 /** Public probe — no Bearer required (so console can detect authRequired). */
 export async function GET(request: NextRequest) {
-  seedDefaultBackends(request.nextUrl.origin);
+  ensureHubSeeded(request.nextUrl.origin);
   return NextResponse.json({
     capabilities: listCapabilityCatalog(),
     adapters: {

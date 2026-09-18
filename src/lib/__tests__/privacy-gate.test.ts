@@ -9,7 +9,8 @@ import {
   assertRemoteUnaryForbidden,
   resolveBackendForPolicy,
 } from "@/lib/router";
-import { seedDefaultBackends } from "@/lib/registry";
+import { updateDevice, MOCK_DEVICE_IDS } from "@/lib/devices";
+import { ensureHubSeeded } from "@/lib/seed";
 import { resetStoreForTests } from "@/lib/store";
 import type { Backend } from "@/lib/types";
 
@@ -19,7 +20,7 @@ afterEach(() => {
 });
 
 function seed() {
-  seedDefaultBackends("http://localhost:43127");
+  ensureHubSeeded("http://localhost:43127");
 }
 
 describe("remote unary hard gate", () => {
@@ -35,8 +36,10 @@ describe("remote unary hard gate", () => {
     ).toThrow(PolicyError);
   });
 
-  it("rejects capability unary when only remote backends exist", () => {
+  it("rejects capability unary when no local schedulable backend", () => {
     seed();
+    // Unplug local NPU so only remote llm mock remains
+    updateDevice(MOCK_DEVICE_IDS.npuStick, { pluggedIn: false });
     const flags = resolvePolicy("llm.chat");
     expect(() =>
       resolveBackendForPolicy({ capability: "llm.chat" }, flags, {

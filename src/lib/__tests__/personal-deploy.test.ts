@@ -4,12 +4,9 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import { authorizeHubRequest, isHubAuthRequired } from "@/lib/auth";
-import {
-  createBackend,
-  listBackends,
-  seedDefaultBackends,
-} from "@/lib/registry";
+import { createBackend, listBackends } from "@/lib/registry";
 import { updateDataPolicy, resolvePolicy } from "@/lib/policy";
+import { ensureHubSeeded } from "@/lib/seed";
 import { getStateFilePath } from "@/lib/persist";
 import { resetStoreForTests, getStore } from "@/lib/store";
 import { listSuggestedBackends } from "@/lib/suggestions";
@@ -55,7 +52,7 @@ describe("file persistence", () => {
     process.env.HUB_PERSIST = "1";
     resetStoreForTests({ rehydrate: true });
 
-    seedDefaultBackends("http://127.0.0.1:43127");
+    ensureHubSeeded("http://127.0.0.1:43127");
     createBackend({
       name: "Personal Ollama",
       baseUrl: "http://127.0.0.1:11434/v1",

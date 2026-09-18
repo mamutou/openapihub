@@ -213,6 +213,7 @@ export function createBackend(input: CreateBackendInput): Backend {
     locality,
     supportsStreaming,
     enabled: input.enabled ?? true,
+    deviceId: input.deviceId,
     createdAt: now,
     updatedAt: now,
   };
@@ -251,6 +252,12 @@ export function updateBackend(
         ? Boolean(input.supportsStreaming)
         : existing.supportsStreaming,
     enabled: input.enabled ?? existing.enabled,
+    deviceId:
+      input.deviceId === null
+        ? undefined
+        : input.deviceId !== undefined
+          ? input.deviceId
+          : existing.deviceId,
     updatedAt: nowIso(),
   };
 

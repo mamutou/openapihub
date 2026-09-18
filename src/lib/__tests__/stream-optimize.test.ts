@@ -10,8 +10,10 @@ import {
   resolveBackendForPolicy,
   routeInvoke,
 } from "@/lib/router";
-import { createBackend, seedDefaultBackends } from "@/lib/registry";
+import { createBackend } from "@/lib/registry";
+import { ensureHubSeeded } from "@/lib/seed";
 import { resetStoreForTests } from "@/lib/store";
+import { updateDevice, MOCK_DEVICE_IDS } from "@/lib/devices";
 import {
   extractTokensFromUpstreamEvent,
   formatSse,
@@ -23,7 +25,7 @@ afterEach(() => {
 });
 
 function seed() {
-  seedDefaultBackends("http://localhost:43127");
+  ensureHubSeeded("http://localhost:43127");
 }
 
 describe("SSE normalize (no {raw} wrap)", () => {
@@ -119,27 +121,40 @@ describe("echo capability path routing", () => {
     expect(resolveCapabilityPath("mail.send", "stream")).toBe("/send");
   });
 
-  it("prepareStreamInvoke for echo.message uses /echo/stream on remote", () => {
+  it("prepareStreamInvoke for echo.message uses /echo/stream", () => {
     seed();
     const setup = prepareStreamInvoke({
       capability: "echo.message",
       body: { message: "路由试调" },
     });
     expect(setup.path).toBe("/echo/stream");
-    expect(setup.backend.locality).toBe("remote");
     expect(setup.backend.supportsStreaming).toBe(true);
     expect(setup.targetUrl).toContain("/echo/stream");
     expect(setup.targetUrl).not.toMatch(/\/echo$/);
+    expect(setup.schedule?.reason).toBeTruthy();
   });
 
-  it("capability streaming prefers remote echo over local", () => {
+  it("capability streaming prefers healthy edge device over remote echo", () => {
     seed();
     const flags = resolvePolicy("echo.message");
-    const backend = resolveBackendForPolicy(
+    const resolved = resolveBackendForPolicy(
       { capability: "echo.message" },
       flags,
       { streaming: true },
     );
-    expect(backend.id).toBe("bk_remote_echo");
+    expect(resolved.backend.id).toBe("bk_dev_edge_box");
+    expect(resolved.schedule?.deviceId).toBe(MOCK_DEVICE_IDS.edgeBox);
+  });
+
+  it("unplugging edge device falls back toward remote echo", () => {
+    seed();
+    updateDevice(MOCK_DEVICE_IDS.edgeBox, { pluggedIn: false });
+    const flags = resolvePolicy("echo.message");
+    const resolved = resolveBackendForPolicy(
+      { capability: "echo.message" },
+      flags,
+      { streaming: true },
+    );
+    expect(resolved.backend.id).toBe("bk_remote_echo");
   });
 });

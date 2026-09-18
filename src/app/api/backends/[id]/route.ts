@@ -3,14 +3,14 @@ import { authorizeHubRequest } from "@/lib/auth";
 import {
   deleteBackend,
   getBackend,
-  seedDefaultBackends,
   updateBackend,
 } from "@/lib/registry";
+import { ensureHubSeeded } from "@/lib/seed";
 
 type Params = { params: Promise<{ id: string }> };
 
 function ensureSeeded(request: NextRequest) {
-  seedDefaultBackends(request.nextUrl.origin);
+  ensureHubSeeded(request.nextUrl.origin);
 }
 
 export async function GET(request: NextRequest, { params }: Params) {

@@ -32,6 +32,8 @@ export function recordInvocation(input: {
   error?: string;
   errorCode?: string;
   durationMs: number;
+  scheduleReason?: string;
+  deviceId?: string;
 }): Invocation {
   const payloadsRetained = input.retainPayloads;
   const responseSummary = payloadsRetained
@@ -55,6 +57,8 @@ export function recordInvocation(input: {
     errorCode: input.errorCode,
     createdAt: nowIso(),
     durationMs: input.durationMs,
+    scheduleReason: input.scheduleReason,
+    deviceId: input.deviceId,
     ...(payloadsRetained
       ? {
           requestBody: input.requestBody ?? null,

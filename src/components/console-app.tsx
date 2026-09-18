@@ -12,6 +12,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { CapabilityCatalogPanel } from "@/components/capability-catalog-panel";
+import { DevicesPanel } from "@/components/devices-panel";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,13 +28,14 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import type { CapabilitySpec } from "@/lib/capabilities/catalog";
+import type { HardwareProfile } from "@/lib/hardware/profiles";
 import {
   getHubApiToken,
   hubFetch,
   setHubApiToken,
 } from "@/lib/hub-client";
 import type { SuggestedBackend } from "@/lib/suggestions";
-import type { Backend, DataPolicy, Invocation, Locality } from "@/lib/types";
+import type { Backend, DataPolicy, Device, Invocation, Locality } from "@/lib/types";
 import { parseSseBlocks } from "@/lib/sse";
 
 type LoadState = "idle" | "loading" | "error";
@@ -84,6 +86,14 @@ export function ConsoleApp() {
   const [authRequired, setAuthRequired] = useState(false);
   const [hubToken, setHubToken] = useState(() => getHubApiToken());
   const [tokenDraft, setTokenDraft] = useState(() => getHubApiToken());
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [hardwareProfiles, setHardwareProfiles] = useState<HardwareProfile[]>(
+    [],
+  );
+  const [devicesLoading, setDevicesLoading] = useState(true);
+  const [deviceBusyId, setDeviceBusyId] = useState<string | null>(null);
+  const [schedulePreview, setSchedulePreview] = useState("");
+  const [lastScheduleReason, setLastScheduleReason] = useState("");
 
   const selectedBackend = backends.find((b) => b.id === backendId);
   const useStream =
@@ -167,6 +177,21 @@ export function ConsoleApp() {
     [],
   );
 
+  const loadDevices = useCallback(async () => {
+    setDevicesLoading(true);
+    try {
+      const res = await hubFetch("/api/devices", { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "加载设备失败");
+      setDevices(data.devices ?? []);
+      setHardwareProfiles(data.profiles ?? []);
+    } catch {
+      setDevices([]);
+    } finally {
+      setDevicesLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     async function bootstrap() {
@@ -242,6 +267,20 @@ export function ConsoleApp() {
           error instanceof Error ? error.message : "加载调用记录失败",
         );
       }
+
+      try {
+        const res = await hubFetch("/api/devices", { cache: "no-store" });
+        const data = await res.json();
+        if (cancelled) return;
+        if (res.ok) {
+          setDevices(data.devices ?? []);
+          setHardwareProfiles(data.profiles ?? []);
+        }
+      } catch {
+        /* ignore */
+      } finally {
+        if (!cancelled) setDevicesLoading(false);
+      }
     }
     void bootstrap();
     return () => {
@@ -290,6 +329,83 @@ export function ConsoleApp() {
   function saveToken() {
     setHubApiToken(tokenDraft);
     setHubToken(tokenDraft.trim());
+  }
+
+  async function deviceHeartbeat(id: string) {
+    setDeviceBusyId(id);
+    try {
+      const res = await hubFetch(`/api/devices/${id}/heartbeat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ probe: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "心跳失败");
+      await loadDevices();
+      await loadBackends();
+    } catch (error) {
+      setBackendsError(error instanceof Error ? error.message : "心跳失败");
+    } finally {
+      setDeviceBusyId(null);
+    }
+  }
+
+  async function toggleDevicePlug(device: Device) {
+    setDeviceBusyId(device.id);
+    try {
+      const res = await hubFetch(`/api/devices/${device.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pluggedIn: !device.pluggedIn }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "拔插失败");
+      await loadDevices();
+      await loadBackends();
+    } catch (error) {
+      setBackendsError(error instanceof Error ? error.message : "拔插失败");
+    } finally {
+      setDeviceBusyId(null);
+    }
+  }
+
+  async function toggleDeviceEnabled(device: Device) {
+    setDeviceBusyId(device.id);
+    try {
+      const res = await hubFetch(`/api/devices/${device.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: !device.enabled }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "更新设备失败");
+      await loadDevices();
+      await loadBackends();
+    } catch (error) {
+      setBackendsError(
+        error instanceof Error ? error.message : "更新设备失败",
+      );
+    } finally {
+      setDeviceBusyId(null);
+    }
+  }
+
+  async function previewSchedule(capability: string) {
+    setSchedulePreview("调度中…");
+    try {
+      const res = await hubFetch("/api/schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ capability, streaming: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "调度失败");
+      setSchedulePreview(data.schedule?.reason || JSON.stringify(data.schedule));
+    } catch (error) {
+      setSchedulePreview(
+        error instanceof Error ? error.message : "调度失败",
+      );
+    }
   }
 
   async function addSuggestedBackend(suggestion: SuggestedBackend) {
@@ -431,6 +547,9 @@ export function ConsoleApp() {
       throw new Error(data.error || "调用失败");
     }
     setLastResult(data);
+    if (data.schedule?.reason) {
+      setLastScheduleReason(String(data.schedule.reason));
+    }
     if (!res.ok) {
       setInvokeError(data.error || data.invocation?.error || "上游返回错误");
     }
@@ -476,6 +595,14 @@ export function ConsoleApp() {
         } else if (ev.event === "done" || ev.event === "meta") {
           try {
             doneMeta = JSON.parse(ev.data);
+            if (ev.event === "meta") {
+              const meta = doneMeta as {
+                scheduleReason?: string;
+              };
+              if (meta.scheduleReason) {
+                setLastScheduleReason(meta.scheduleReason);
+              }
+            }
             if (ev.event === "done") setLastResult(doneMeta);
           } catch {
             /* ignore */
@@ -503,6 +630,7 @@ export function ConsoleApp() {
     setInvokeError("");
     setLastResult(null);
     setStreamLive("");
+    setLastScheduleReason("");
 
     let body: unknown = {};
     try {
@@ -581,6 +709,7 @@ export function ConsoleApp() {
                 void loadPolicy({ showLoading: true });
                 void loadBackends({ showLoading: true });
                 void loadInvocations({ showLoading: true });
+                void loadDevices();
               }}
             >
               <RefreshCw className="size-3.5" />
@@ -633,6 +762,23 @@ export function ConsoleApp() {
             suggesting={suggesting}
             onTry={tryCapability}
             onAddSuggestion={addSuggestedBackend}
+          />
+        </section>
+
+        <section className="space-y-6 lg:col-span-2">
+          <DevicesPanel
+            devices={devices}
+            profiles={hardwareProfiles}
+            loading={devicesLoading}
+            busyId={deviceBusyId}
+            schedulePreview={schedulePreview}
+            onRefresh={() => {
+              void loadDevices();
+            }}
+            onHeartbeat={deviceHeartbeat}
+            onTogglePlug={toggleDevicePlug}
+            onToggleEnabled={toggleDeviceEnabled}
+            onPreviewSchedule={previewSchedule}
           />
         </section>
 
@@ -945,6 +1091,12 @@ export function ConsoleApp() {
                   {invoking && <Loader2 className="size-3.5 animate-spin" />}
                   {useStream ? "流式调用（云→本地）" : "发起调用"}
                 </Button>
+
+                {lastScheduleReason && (
+                  <p className="text-xs leading-relaxed text-slate-600">
+                    调度原因：{lastScheduleReason}
+                  </p>
+                )}
 
                 {streamLive && (
                   <div className="rounded-lg border border-teal-800/20 bg-teal-50/60 p-3">

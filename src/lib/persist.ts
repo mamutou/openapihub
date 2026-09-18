@@ -1,12 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { Backend, DataPolicy, Invocation } from "@/lib/types";
+import type { Backend, DataPolicy, Device, Invocation } from "@/lib/types";
 
 export type PersistedHubState = {
   version: 1;
   seedVersion: number;
   policy: DataPolicy;
   backends: Backend[];
+  devices?: Device[];
   /** Metadata-only by default (no request/response bodies unless retainPayloads). */
   invocations: Invocation[];
 };

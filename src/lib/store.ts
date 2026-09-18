@@ -1,4 +1,4 @@
-import type { Backend, DataPolicy, Invocation } from "@/lib/types";
+import type { Backend, DataPolicy, Device, Invocation } from "@/lib/types";
 import { DEFAULT_DATA_POLICY } from "@/lib/policy";
 import {
   persistEnabled,
@@ -7,11 +7,12 @@ import {
   type PersistedHubState,
 } from "@/lib/persist";
 
-/** Bump when seed shape / privacy defaults / capability mocks change */
-export const STORE_SEED_VERSION = 5;
+/** Bump when seed shape / privacy defaults / capability mocks / devices change */
+export const STORE_SEED_VERSION = 6;
 
 type Store = {
   backends: Map<string, Backend>;
+  devices: Map<string, Device>;
   invocations: Invocation[];
   policy: DataPolicy;
   seedVersion: number;
@@ -34,6 +35,7 @@ function defaultPolicy(): DataPolicy {
 function createStore(): Store {
   return {
     backends: new Map(),
+    devices: new Map(),
     invocations: [],
     policy: defaultPolicy(),
     seedVersion: 0,
@@ -76,6 +78,8 @@ function sanitizeInvocationForDisk(inv: Invocation): Invocation {
     errorCode: inv.errorCode,
     createdAt: inv.createdAt,
     durationMs: inv.durationMs,
+    scheduleReason: inv.scheduleReason,
+    deviceId: inv.deviceId,
   };
 }
 
@@ -86,6 +90,9 @@ function hydrateFromDisk(store: Store): void {
   store.policy = sanitizePolicy(disk.policy);
   store.backends = new Map(
     (disk.backends ?? []).filter((b) => b?.id).map((b) => [b.id, b]),
+  );
+  store.devices = new Map(
+    (disk.devices ?? []).filter((d) => d?.id).map((d) => [d.id, d]),
   );
   store.invocations = (disk.invocations ?? []).map(sanitizeInvocationForDisk);
 }
@@ -123,6 +130,7 @@ export function persistStore(): void {
     seedVersion: store.seedVersion,
     policy: sanitizePolicy(store.policy),
     backends: [...store.backends.values()],
+    devices: [...store.devices.values()],
     invocations: store.invocations.map(sanitizeInvocationForDisk),
   };
   writePersistedState(payload);

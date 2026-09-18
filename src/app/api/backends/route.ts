@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authorizeHubRequest } from "@/lib/auth";
-import {
-  createBackend,
-  listBackends,
-  seedDefaultBackends,
-} from "@/lib/registry";
+import { createBackend, listBackends } from "@/lib/registry";
+import { ensureHubSeeded } from "@/lib/seed";
 
 function ensureSeeded(request: NextRequest) {
-  seedDefaultBackends(request.nextUrl.origin);
+  ensureHubSeeded(request.nextUrl.origin);
 }
 
 export async function GET(request: NextRequest) {

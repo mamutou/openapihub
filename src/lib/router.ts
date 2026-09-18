@@ -14,6 +14,7 @@ import {
 } from "@/lib/http";
 import { recordInvocation } from "@/lib/invocations";
 import { PolicyError, resolvePolicy } from "@/lib/policy";
+import { schedule, type ScheduleResult } from "@/lib/scheduler";
 import type {
   Backend,
   DataPolicyFlags,
@@ -59,32 +60,16 @@ export function assertStreamRequiredCapability(
   }
 }
 
-function pickPreferred(
-  matches: Backend[],
-  preferLocal: boolean,
-  streaming: boolean,
-): Backend {
-  if (streaming) {
-    const streamingCapable = matches.filter((b) => b.supportsStreaming);
-    const pool = streamingCapable.length > 0 ? streamingCapable : matches;
-    if (preferLocal) {
-      return pool.find((b) => b.locality === "local") ?? pool[0];
-    }
-    // Prefer remote streaming backends for capability demos when not preferLocal
-    return (
-      pool.find((b) => b.locality === "remote") ??
-      pool[0]
-    );
-  }
-  if (!preferLocal) return matches[0];
-  return matches.find((b) => b.locality === "local") ?? matches[0];
-}
+export type ResolvedRoute = {
+  backend: Backend;
+  schedule?: ScheduleResult;
+};
 
 export function resolveBackendForPolicy(
   request: InvokeRequest,
   flags: DataPolicyFlags,
   opts?: { streaming?: boolean },
-): Backend {
+): ResolvedRoute {
   const streaming = opts?.streaming ?? false;
 
   if (request.backendId) {
@@ -109,7 +94,7 @@ export function resolveBackendForPolicy(
     } else {
       assertRemoteUnaryForbidden(backend);
     }
-    return backend;
+    return { backend };
   }
 
   if (!request.capability) {
@@ -139,7 +124,6 @@ export function resolveBackendForPolicy(
         `没有支持流式的后端可用于能力 ${request.capability}`,
       );
     }
-    matches = streamable;
   } else {
     const unaryOk = matches.filter((b) => b.locality === "local");
     if (unaryOk.length === 0) {
@@ -147,10 +131,29 @@ export function resolveBackendForPolicy(
         `能力 ${request.capability} 仅有 remote 后端；请改用 POST /api/invoke/stream（remote 禁止一元缓冲）`,
       );
     }
-    matches = unaryOk;
   }
 
-  return pickPreferred(matches, flags.preferLocal, streaming);
+  try {
+    const scheduled = schedule({
+      capability: request.capability,
+      streaming,
+      preferLocal: flags.preferLocal,
+      allowRemoteCompute: flags.allowRemoteCompute,
+      healthyOnly: true,
+    });
+    const backend = getBackend(scheduled.backendId);
+    if (!backend || !backend.enabled) {
+      throw new Error("调度结果后端不可用");
+    }
+    assertRemoteComputeAllowed(backend, flags.allowRemoteCompute);
+    if (!streaming) assertRemoteUnaryForbidden(backend);
+    return { backend, schedule: scheduled };
+  } catch (error) {
+    if (error instanceof PolicyError) throw error;
+    throw new Error(
+      error instanceof Error ? error.message : "调度失败",
+    );
+  }
 }
 
 function capabilityForPolicy(request: InvokeRequest): string | undefined {
@@ -172,11 +175,16 @@ export function policyHeaders(flags: DataPolicyFlags): Record<string, string> {
 export async function routeInvoke(
   request: InvokeRequest,
   opts?: { signal?: AbortSignal; timeoutMs?: number },
-): Promise<{ invocation: Invocation; data: unknown }> {
+): Promise<{
+  invocation: Invocation;
+  data: unknown;
+  schedule?: ScheduleResult;
+}> {
   const policyFlags = resolvePolicy(capabilityForPolicy(request));
-  const backend = resolveBackendForPolicy(request, policyFlags, {
+  const resolved = resolveBackendForPolicy(request, policyFlags, {
     streaming: false,
   });
+  const backend = resolved.backend;
   const capability =
     request.capability ?? backend.capabilities[0] ?? "unknown";
   const effectiveFlags = resolvePolicy(capability);
@@ -240,9 +248,15 @@ export async function routeInvoke(
         : `上游返回 HTTP ${upstream.status}`,
       errorCode: upstream.ok ? undefined : `HTTP_${upstream.status}`,
       durationMs,
+      scheduleReason: resolved.schedule?.reason,
+      deviceId: resolved.schedule?.deviceId ?? backend.deviceId,
     });
 
-    return { invocation, data: responseBody };
+    return {
+      invocation,
+      data: responseBody,
+      schedule: resolved.schedule,
+    };
   } catch (error) {
     const durationMs = Date.now() - started;
     const message = abortErrorMessage(error, "调用上游失败");
@@ -261,8 +275,14 @@ export async function routeInvoke(
       error: message,
       errorCode: isAbortError(error) ? "ABORTED" : "UPSTREAM_ERROR",
       durationMs,
+      scheduleReason: resolved.schedule?.reason,
+      deviceId: resolved.schedule?.deviceId ?? backend.deviceId,
     });
-    return { invocation, data: { error: message } };
+    return {
+      invocation,
+      data: { error: message },
+      schedule: resolved.schedule,
+    };
   } finally {
     clear();
   }
@@ -277,13 +297,15 @@ export type StreamInvokeSetup = {
   flags: DataPolicyFlags;
   requestBody: unknown;
   started: number;
+  schedule?: ScheduleResult;
 };
 
 export function prepareStreamInvoke(request: InvokeRequest): StreamInvokeSetup {
   const policyFlags = resolvePolicy(capabilityForPolicy(request));
-  const backend = resolveBackendForPolicy(request, policyFlags, {
+  const resolved = resolveBackendForPolicy(request, policyFlags, {
     streaming: true,
   });
+  const backend = resolved.backend;
   const capability =
     request.capability ?? backend.capabilities[0] ?? "unknown";
   const flags = resolvePolicy(capability);
@@ -313,6 +335,7 @@ export function prepareStreamInvoke(request: InvokeRequest): StreamInvokeSetup {
     flags,
     requestBody: request.body ?? null,
     started: Date.now(),
+    schedule: resolved.schedule,
   };
 }
 
@@ -344,5 +367,7 @@ export function finalizeStreamInvocation(
     error: outcome.error,
     errorCode: outcome.errorCode,
     durationMs: Date.now() - setup.started,
+    scheduleReason: setup.schedule?.reason,
+    deviceId: setup.schedule?.deviceId ?? setup.backend.deviceId,
   });
 }

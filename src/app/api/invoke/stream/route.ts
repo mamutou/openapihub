@@ -7,7 +7,7 @@ import {
   isAbortError,
 } from "@/lib/http";
 import { PolicyError } from "@/lib/policy";
-import { seedDefaultBackends } from "@/lib/registry";
+import { ensureHubSeeded } from "@/lib/seed";
 import {
   finalizeStreamInvocation,
   policyHeaders,
@@ -26,7 +26,7 @@ export const runtime = "nodejs";
 export async function POST(request: NextRequest) {
   const denied = authorizeHubRequest(request);
   if (denied) return denied;
-  seedDefaultBackends(request.nextUrl.origin);
+  ensureHubSeeded(request.nextUrl.origin);
 
   let body: InvokeRequest;
   try {
@@ -135,6 +135,9 @@ export async function POST(request: NextRequest) {
         backendName: setup.backend.name,
         locality: setup.backend.locality,
         capability: setup.capability,
+        deviceId: setup.schedule?.deviceId ?? setup.backend.deviceId,
+        scheduleReason: setup.schedule?.reason,
+        scheduleScore: setup.schedule?.score,
         remoteRetainFiles: false,
         retainPayloads: retain,
         note: "云端 ephemeral · 输出在本地收看 · Hub 默认不落正文",

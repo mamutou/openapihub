@@ -122,11 +122,12 @@ curl -H "Authorization: Bearer $HUB_API_TOKEN" http://127.0.0.1:43127/api/backen
 
 | 路径 | 职责 |
 |------|------|
-| `src/lib/persist.ts` | `data/hub-state.json` |
-| `src/lib/auth.ts` | 可选 Bearer |
-| `src/lib/capabilities/` | 目录与探测 |
+| `src/lib/capabilities/` | 目录、类型、可选适配占位 |
+| `src/lib/hardware/` | Hardware Profile 目录 |
+| `src/lib/devices.ts` | 可插拔设备生命周期 |
+| `src/lib/scheduler.ts` | 按能力选 Device/Backend |
 | `src/lib/policy.ts` / `router.ts` | Data Policy + P0 硬门 |
-| `src/components/console-app.tsx` | 控制台 |
+| `src/components/console-app.tsx` | 控制台（含设备面板） |
 
 ## 技术栈
 

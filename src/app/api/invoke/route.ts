@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authorizeHubRequest } from "@/lib/auth";
 import { PolicyError } from "@/lib/policy";
-import { seedDefaultBackends } from "@/lib/registry";
+import { ensureHubSeeded } from "@/lib/seed";
 import { routeInvoke } from "@/lib/router";
 import type { InvokeRequest } from "@/lib/types";
 
 export async function POST(request: NextRequest) {
   const denied = authorizeHubRequest(request);
   if (denied) return denied;
-  seedDefaultBackends(request.nextUrl.origin);
+  ensureHubSeeded(request.nextUrl.origin);
 
   let body: InvokeRequest;
   try {
@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { invocation, data } = await routeInvoke({
+    const { invocation, data, schedule } = await routeInvoke({
       capability: body.capability ? String(body.capability) : undefined,
       backendId: body.backendId ? String(body.backendId) : undefined,
       path: body.path ? String(body.path) : undefined,
@@ -33,6 +33,14 @@ export async function POST(request: NextRequest) {
       {
         invocation,
         result: data,
+        schedule: schedule
+          ? {
+              backendId: schedule.backendId,
+              deviceId: schedule.deviceId,
+              score: schedule.score,
+              reason: schedule.reason,
+            }
+          : undefined,
       },
       { status },
     );
