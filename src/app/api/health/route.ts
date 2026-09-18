@@ -1,11 +1,16 @@
 import { NextResponse } from "next/server";
-import { isHubAuthRequired } from "@/lib/auth";
+import { getAuthStatus } from "@/lib/auth";
 
 /** Lightweight probe for console / deploy health. */
 export async function GET() {
+  const auth = getAuthStatus();
   return NextResponse.json({
     ok: true,
     service: "openapihub",
-    authRequired: isHubAuthRequired(),
+    authRequired: auth.authRequired,
+    bind: auth.bind,
+    loopbackBind: auth.loopbackBind,
+    openProxyDenied: auth.openProxyDenied,
+    warning: auth.warning,
   });
 }

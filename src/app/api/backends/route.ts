@@ -25,21 +25,33 @@ export async function POST(request: NextRequest) {
       : typeof body.capabilities === "string"
         ? body.capabilities.split(/[,，\s]+/)
         : [];
-    const locality = body.locality === "remote" ? "remote" : "local";
+    const declaredLocality = body.locality === "remote" ? "remote" : "local";
 
     const backend = createBackend({
       name: String(body.name ?? ""),
       baseUrl: String(body.baseUrl ?? ""),
       capabilities,
-      locality,
+      locality: declaredLocality,
       supportsStreaming:
         body.supportsStreaming !== undefined
           ? Boolean(body.supportsStreaming)
-          : locality === "remote",
+          : undefined,
       enabled: body.enabled !== false,
     });
 
-    return NextResponse.json({ backend }, { status: 201 });
+    const localityCoerced =
+      declaredLocality === "local" && backend.locality === "remote";
+
+    return NextResponse.json(
+      {
+        backend,
+        localityCoerced,
+        warning: localityCoerced
+          ? "baseUrl 非私网/loopback，已将 locality 纠正为 remote（并启用 supportsStreaming）"
+          : undefined,
+      },
+      { status: 201 },
+    );
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "创建失败" },

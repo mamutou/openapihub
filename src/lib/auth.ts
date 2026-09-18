@@ -1,33 +1,136 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
-/** Optional personal-deploy token from env. Empty = open (dev-friendly). */
+/** Optional personal-deploy token from env. */
 export function getConfiguredHubToken(): string | null {
   const token = process.env.HUB_API_TOKEN?.trim();
   return token ? token : null;
 }
 
+/**
+ * Bind address intent. package.json start/dev set HUB_BIND to match --hostname.
+ * Default 127.0.0.1 (loopback-only).
+ */
+export function getConfiguredBind(): string {
+  const bind =
+    process.env.HUB_BIND?.trim() ||
+    process.env.HOST?.trim() ||
+    "127.0.0.1";
+  return bind || "127.0.0.1";
+}
+
+export function isLoopbackBind(bind = getConfiguredBind()): boolean {
+  const b = bind.toLowerCase();
+  return b === "127.0.0.1" || b === "localhost" || b === "::1";
+}
+
+export function isOpenProxyAllowed(): boolean {
+  return process.env.HUB_ALLOW_OPEN === "1";
+}
+
+/**
+ * When true, management/invoke APIs must present a Bearer token
+ * (or will be rejected even if HUB_API_TOKEN is unset).
+ *
+ * Triggers: non-loopback bind without HUB_ALLOW_OPEN.
+ * Production on loopback stays open for personal local use unless token set.
+ */
+export function isOpenProxyDenied(): boolean {
+  if (getConfiguredHubToken()) return false;
+  if (isOpenProxyAllowed()) return false;
+  // Unit tests stay open unless explicitly probing the guard
+  if (process.env.VITEST && process.env.HUB_TEST_OPEN_GUARD !== "1") {
+    return false;
+  }
+  return !isLoopbackBind();
+}
+
 export function isHubAuthRequired(): boolean {
-  return getConfiguredHubToken() !== null;
+  return getConfiguredHubToken() !== null || isOpenProxyDenied();
+}
+
+export type AuthStatus = {
+  authRequired: boolean;
+  openProxyDenied: boolean;
+  bind: string;
+  loopbackBind: boolean;
+  allowOpen: boolean;
+  hasToken: boolean;
+  warning?: string;
+};
+
+export function getAuthStatus(): AuthStatus {
+  const bind = getConfiguredBind();
+  const loopbackBind = isLoopbackBind(bind);
+  const hasToken = getConfiguredHubToken() !== null;
+  const allowOpen = isOpenProxyAllowed();
+  const openProxyDenied = isOpenProxyDenied();
+  const authRequired = hasToken || openProxyDenied;
+
+  let warning: string | undefined;
+  if (openProxyDenied) {
+    warning =
+      "当前监听非本机地址且未设置 HUB_API_TOKEN：管理/invoke API 已拒绝开放访问。请设置 Token，改为 HUB_BIND=127.0.0.1，或显式 HUB_ALLOW_OPEN=1（不安全）。";
+  } else if (!hasToken && !loopbackBind && allowOpen) {
+    warning =
+      "已启用 HUB_ALLOW_OPEN=1：非本机监听且无 Token，任意客户端可注册 Backend 并转发请求（SSRF 风险）。";
+  } else if (!hasToken && loopbackBind) {
+    warning =
+      "未设置 HUB_API_TOKEN。仅本机访问时可接受；局域网部署请设置 Token，并用 start:lan + HUB_BIND=0.0.0.0。";
+  }
+
+  return {
+    authRequired,
+    openProxyDenied,
+    bind,
+    loopbackBind,
+    allowOpen,
+    hasToken,
+    warning,
+  };
+}
+
+let warnedOpenBind = false;
+
+export function warnOpenBindOnce(): void {
+  if (warnedOpenBind) return;
+  const status = getAuthStatus();
+  if (status.warning && (status.openProxyDenied || !status.loopbackBind)) {
+    warnedOpenBind = true;
+    console.warn(`[OpenAPIHub] ${status.warning}`);
+  }
 }
 
 export function authorizeHubRequest(
   request: NextRequest,
 ): NextResponse | null {
+  warnOpenBindOnce();
   const expected = getConfiguredHubToken();
-  if (!expected) return null;
 
-  const header = request.headers.get("authorization") ?? "";
-  const match = /^Bearer\s+(.+)$/i.exec(header);
-  const provided = match?.[1]?.trim() ?? "";
+  if (expected) {
+    const header = request.headers.get("authorization") ?? "";
+    const match = /^Bearer\s+(.+)$/i.exec(header);
+    const provided = match?.[1]?.trim() ?? "";
+    if (provided && provided === expected) return null;
+    return NextResponse.json(
+      {
+        error: "需要 Authorization: Bearer <HUB_API_TOKEN>",
+        code: "UNAUTHORIZED",
+      },
+      { status: 401 },
+    );
+  }
 
-  if (provided && provided === expected) return null;
+  if (isOpenProxyDenied()) {
+    return NextResponse.json(
+      {
+        error:
+          "非本机监听且未设置 HUB_API_TOKEN。请设置 Token，或 HUB_BIND=127.0.0.1，或显式 HUB_ALLOW_OPEN=1（不安全）",
+        code: "OPEN_PROXY_DENIED",
+      },
+      { status: 401 },
+    );
+  }
 
-  return NextResponse.json(
-    {
-      error: "需要 Authorization: Bearer <HUB_API_TOKEN>",
-      code: "UNAUTHORIZED",
-    },
-    { status: 401 },
-  );
+  return null;
 }

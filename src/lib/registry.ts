@@ -5,6 +5,7 @@ import {
   persistStore,
   STORE_SEED_VERSION,
 } from "@/lib/store";
+import { coerceLocalityForUrl } from "@/lib/locality";
 import type {
   Backend,
   CreateBackendInput,
@@ -196,9 +197,15 @@ export function createBackend(input: CreateBackendInput): Backend {
   const name = input.name.trim();
   const baseUrl = normalizeBaseUrl(input.baseUrl);
   const capabilities = normalizeCapabilities(input.capabilities);
-  const locality = normalizeLocality(input.locality);
-  const supportsStreaming =
+  const declared = normalizeLocality(input.locality);
+  const coercion = coerceLocalityForUrl(baseUrl, declared);
+  const locality = coercion.locality;
+  let supportsStreaming =
     input.supportsStreaming ?? locality === "remote";
+  if (coercion.coerced) {
+    // Public URL forced remote → must be stream-capable for P0
+    supportsStreaming = true;
+  }
 
   if (!name) throw new Error("后端名称不能为空");
   if (!baseUrl) throw new Error("baseUrl 不能为空");
@@ -230,27 +237,35 @@ export function updateBackend(
   const existing = getBackend(id);
   if (!existing) throw new Error("后端不存在");
 
-  const locality =
+  const baseUrl =
+    input.baseUrl !== undefined
+      ? normalizeBaseUrl(input.baseUrl)
+      : existing.baseUrl;
+  const declared =
     input.locality !== undefined
       ? normalizeLocality(input.locality)
       : existing.locality;
+  const coercion = coerceLocalityForUrl(baseUrl, declared);
+  const locality = coercion.locality;
+
+  let supportsStreaming =
+    input.supportsStreaming !== undefined
+      ? Boolean(input.supportsStreaming)
+      : existing.supportsStreaming;
+  if (coercion.coerced) {
+    supportsStreaming = true;
+  }
 
   const next: Backend = {
     ...existing,
     name: input.name !== undefined ? input.name.trim() : existing.name,
-    baseUrl:
-      input.baseUrl !== undefined
-        ? normalizeBaseUrl(input.baseUrl)
-        : existing.baseUrl,
+    baseUrl,
     capabilities:
       input.capabilities !== undefined
         ? normalizeCapabilities(input.capabilities)
         : existing.capabilities,
     locality,
-    supportsStreaming:
-      input.supportsStreaming !== undefined
-        ? Boolean(input.supportsStreaming)
-        : existing.supportsStreaming,
+    supportsStreaming,
     enabled: input.enabled ?? existing.enabled,
     deviceId:
       input.deviceId === null

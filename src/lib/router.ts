@@ -13,6 +13,7 @@ import {
   isAbortError,
 } from "@/lib/http";
 import { recordInvocation } from "@/lib/invocations";
+import { effectiveLocality } from "@/lib/locality";
 import { PolicyError, resolvePolicy } from "@/lib/policy";
 import { schedule, type ScheduleResult } from "@/lib/scheduler";
 import type {
@@ -28,22 +29,36 @@ function joinUrl(baseUrl: string, path: string): string {
   return `${base}${suffix}`;
 }
 
+/** Apply URL-derived locality so public hosts cannot pose as local. */
+export function withEffectiveLocality(backend: Backend): Backend {
+  const locality = effectiveLocality(backend);
+  if (locality === backend.locality) return backend;
+  return {
+    ...backend,
+    locality,
+    supportsStreaming:
+      locality === "remote" ? true : backend.supportsStreaming,
+  };
+}
+
 function assertRemoteComputeAllowed(
   backend: Backend,
   allowRemoteCompute: boolean,
 ): void {
-  if (backend.locality === "remote" && !allowRemoteCompute) {
+  const b = withEffectiveLocality(backend);
+  if (b.locality === "remote" && !allowRemoteCompute) {
     throw new PolicyError(
       `当前策略关闭了云端算力（allowRemoteCompute=false），无法路由到 remote 后端「${backend.name}」`,
     );
   }
 }
 
-/** Hard gate: remote never unary-buffered, regardless of policy toggles. */
+/** Hard gate: remote (incl. URL-inferred) never unary-buffered. */
 export function assertRemoteUnaryForbidden(backend: Backend): void {
-  if (backend.locality === "remote") {
+  const b = withEffectiveLocality(backend);
+  if (b.locality === "remote") {
     throw new PolicyError(
-      `remote 后端「${backend.name}」只能走流式调用 POST /api/invoke/stream（硬约束：禁止一元缓冲云端输出）`,
+      `remote 后端「${backend.name}」只能走流式调用 POST /api/invoke/stream（硬约束：禁止一元缓冲云端输出；含公网 URL 自报 local）`,
     );
   }
 }
@@ -73,17 +88,18 @@ export function resolveBackendForPolicy(
   const streaming = opts?.streaming ?? false;
 
   if (request.backendId) {
-    const backend = getBackend(request.backendId);
-    if (!backend) throw new Error("指定的后端不存在");
-    if (!backend.enabled) throw new Error("指定的后端已停用");
+    const raw = getBackend(request.backendId);
+    if (!raw) throw new Error("指定的后端不存在");
+    if (!raw.enabled) throw new Error("指定的后端已停用");
     if (
       request.capability &&
-      !backend.capabilities.includes(request.capability)
+      !raw.capabilities.includes(request.capability)
     ) {
       throw new Error(
-        `后端「${backend.name}」不支持能力 ${request.capability}`,
+        `后端「${raw.name}」不支持能力 ${request.capability}`,
       );
     }
+    const backend = withEffectiveLocality(raw);
     assertRemoteComputeAllowed(backend, flags.allowRemoteCompute);
     if (streaming) {
       if (backend.locality === "remote" && !backend.supportsStreaming) {
@@ -107,7 +123,7 @@ export function resolveBackendForPolicy(
   }
 
   if (!flags.allowRemoteCompute) {
-    matches = matches.filter((b) => b.locality === "local");
+    matches = matches.filter((b) => effectiveLocality(b) === "local");
     if (matches.length === 0) {
       throw new PolicyError(
         `allowRemoteCompute=false，能力 ${request.capability} 没有可用的 local 后端`,
@@ -117,7 +133,7 @@ export function resolveBackendForPolicy(
 
   if (streaming) {
     const streamable = matches.filter(
-      (b) => b.supportsStreaming || b.locality === "local",
+      (b) => b.supportsStreaming || effectiveLocality(b) === "local",
     );
     if (streamable.length === 0) {
       throw new PolicyError(
@@ -125,7 +141,7 @@ export function resolveBackendForPolicy(
       );
     }
   } else {
-    const unaryOk = matches.filter((b) => b.locality === "local");
+    const unaryOk = matches.filter((b) => effectiveLocality(b) === "local");
     if (unaryOk.length === 0) {
       throw new PolicyError(
         `能力 ${request.capability} 仅有 remote 后端；请改用 POST /api/invoke/stream（remote 禁止一元缓冲）`,
@@ -141,10 +157,11 @@ export function resolveBackendForPolicy(
       allowRemoteCompute: flags.allowRemoteCompute,
       healthyOnly: true,
     });
-    const backend = getBackend(scheduled.backendId);
-    if (!backend || !backend.enabled) {
+    const raw = getBackend(scheduled.backendId);
+    if (!raw || !raw.enabled) {
       throw new Error("调度结果后端不可用");
     }
+    const backend = withEffectiveLocality(raw);
     assertRemoteComputeAllowed(backend, flags.allowRemoteCompute);
     if (!streaming) assertRemoteUnaryForbidden(backend);
     return { backend, schedule: scheduled };

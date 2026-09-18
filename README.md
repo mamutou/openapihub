@@ -18,20 +18,25 @@
 
 ## 本机部署（推荐）
 
+> **局域网 / Docker 必须设 `HUB_API_TOKEN`。** 默认 `npm start` 只绑 `127.0.0.1`；用 `npm run start:lan`（`HUB_BIND=0.0.0.0`）且无 Token 时，管理/invoke API 会返回 401（除非显式 `HUB_ALLOW_OPEN=1`，不安全）。
+
 ```bash
 npm install
-cp .env.example .env   # 按需编辑
+cp .env.example .env   # 局域网务必填写 HUB_API_TOKEN
 npm run build
-npm start              # http://127.0.0.1:43127
+npm start              # http://127.0.0.1:43127 （仅本机）
+# 局域网：
+# HUB_API_TOKEN=change-me npm run start:lan
 ```
 
 开发模式：
 
 ```bash
-npm run dev            # 同端口 43127
+npm run dev            # 127.0.0.1:43127
+# npm run dev:lan      # 需 Token 或 HUB_ALLOW_OPEN=1
 ```
 
-可选 Docker（单容器）：
+可选 Docker（单容器 · 默认 LAN 绑定，**必须**传 Token）：
 
 ```bash
 docker build -t openapihub .
@@ -49,14 +54,19 @@ docker run --rm -p 43127:43127 \
 
 | 变量 | 说明 |
 |------|------|
-| `HUB_API_TOKEN` | 可选。设置后，invoke / 管理 API 需 `Authorization: Bearer …` |
+| `HUB_API_TOKEN` | **局域网必填**。设置后，invoke / 管理 API 需 `Authorization: Bearer …` |
+| `HUB_BIND` | 与监听地址一致；非 loopback 且无 Token → API 拒绝（除非 `HUB_ALLOW_OPEN=1`） |
+| `HUB_ALLOW_OPEN` | `1` 时允许无 Token 开放（不安全，仅排障） |
+| `HUB_LOCAL_HOST_ALLOWLIST` | 额外视为 local 的主机名 |
 | `HUB_DATA_DIR` | 状态目录，默认 `./data` |
 | `HUB_INVOCATION_LIMIT` | 保留的调用元数据条数，默认 `200` |
 | `UNARY_TIMEOUT_MS` / `STREAM_CONNECT_TIMEOUT_MS` | 上游超时 |
-| `OPENAI_BASE_URL` / `OPENAI_API_KEY` | **仅探测**；不代发。用于「添加建议 Backend」预填 |
+| `OPENAI_BASE_URL` / `OPENAI_API_KEY` | **仅探测**；不代发 |
 | `HA_BASE_URL` / `HA_TOKEN` | 同上（Home Assistant） |
 
-控制台：若启用了 `HUB_API_TOKEN`，在页顶输入 token（存 sessionStorage）。
+**locality**：公网 / 非私网 `baseUrl` 不能标 `local`——注册时会纠正为 `remote`；invoke 再按 URL 推导，防止绕过一元硬门。
+
+控制台：若需要 Token，在页顶输入（存 sessionStorage）。
 
 ## 接真实服务（仍不强制代发）
 

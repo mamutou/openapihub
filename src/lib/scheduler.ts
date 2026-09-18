@@ -4,6 +4,7 @@ import {
   type PrivacyTier,
 } from "@/lib/hardware/profiles";
 import { getDevice, isDeviceSchedulable, listDevices } from "@/lib/devices";
+import { effectiveLocality } from "@/lib/locality";
 import { listBackends } from "@/lib/registry";
 import type { Backend, Device, Locality } from "@/lib/types";
 
@@ -49,7 +50,11 @@ export function scoreCandidate(opts: {
   device?: Device;
   input: ScheduleInput;
 }): ScheduleCandidate {
-  const { backend, device, input } = opts;
+  const { device, input } = opts;
+  const backend = {
+    ...opts.backend,
+    locality: effectiveLocality(opts.backend),
+  };
   const reasons: string[] = [];
   let score = 50;
 
@@ -131,7 +136,15 @@ export function schedule(input: ScheduleInput): ScheduleResult {
 
   const candidates: ScheduleCandidate[] = [];
 
-  for (const backend of backends) {
+  for (const raw of backends) {
+    const backend = {
+      ...raw,
+      locality: effectiveLocality(raw),
+      supportsStreaming:
+        effectiveLocality(raw) === "remote"
+          ? true
+          : raw.supportsStreaming,
+    };
     if (!input.allowRemoteCompute && backend.locality === "remote") continue;
     if (input.streaming && backend.locality === "remote" && !backend.supportsStreaming) {
       continue;

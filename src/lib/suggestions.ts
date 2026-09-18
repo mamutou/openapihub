@@ -2,28 +2,12 @@ import {
   hasHomeAssistantConfig,
   hasOpenAiCompatibleConfig,
 } from "@/lib/capabilities";
-import type { CreateBackendInput, Locality } from "@/lib/types";
+import { localityFromUrl } from "@/lib/locality";
+import type { CreateBackendInput } from "@/lib/types";
 
 export type SuggestedBackend = CreateBackendInput & {
   reason: string;
 };
-
-function localityFromUrl(url: string): Locality {
-  try {
-    const host = new URL(url).hostname;
-    if (
-      host === "localhost" ||
-      host === "127.0.0.1" ||
-      host === "::1" ||
-      host.endsWith(".local")
-    ) {
-      return "local";
-    }
-  } catch {
-    /* ignore */
-  }
-  return "remote";
-}
 
 /** Env-detected Backend presets — Hub still does not proxy secrets. */
 export function listSuggestedBackends(): SuggestedBackend[] {

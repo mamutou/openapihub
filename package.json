@@ -3,9 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --hostname 0.0.0.0 --port 43127",
+    "dev": "HUB_BIND=127.0.0.1 next dev --hostname 127.0.0.1 --port 43127",
+    "dev:lan": "HUB_BIND=0.0.0.0 next dev --hostname 0.0.0.0 --port 43127",
     "build": "next build",
-    "start": "next start --hostname 0.0.0.0 --port 43127",
+    "start": "HUB_BIND=127.0.0.1 next start --hostname 127.0.0.1 --port 43127",
+    "start:lan": "HUB_BIND=0.0.0.0 next start --hostname 0.0.0.0 --port 43127",
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest"

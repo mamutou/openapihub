@@ -16,6 +16,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV HUB_DATA_DIR=/app/data
+ENV HUB_BIND=0.0.0.0
 ENV PORT=43127
 ENV HOSTNAME=0.0.0.0
 
@@ -28,4 +29,5 @@ COPY --from=builder /app/next.config.ts ./next.config.ts
 
 EXPOSE 43127
 VOLUME ["/app/data"]
-CMD ["npm", "start"]
+# LAN bind — set HUB_API_TOKEN (or HUB_ALLOW_OPEN=1, insecure)
+CMD ["npm", "run", "start:lan"]

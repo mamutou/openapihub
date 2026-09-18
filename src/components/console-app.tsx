@@ -84,6 +84,8 @@ export function ConsoleApp() {
   const [suggesting, setSuggesting] = useState(false);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [authRequired, setAuthRequired] = useState(false);
+  const [securityWarning, setSecurityWarning] = useState("");
+  const [openProxyDenied, setOpenProxyDenied] = useState(false);
   const [hubToken, setHubToken] = useState(() => getHubApiToken());
   const [tokenDraft, setTokenDraft] = useState(() => getHubApiToken());
   const [devices, setDevices] = useState<Device[]>([]);
@@ -113,6 +115,10 @@ export function ConsoleApp() {
       );
       setSuggestions(data.suggestions ?? []);
       setAuthRequired(Boolean(data.authRequired));
+      setOpenProxyDenied(Boolean(data.openProxyDenied));
+      setSecurityWarning(
+        typeof data.warning === "string" ? data.warning : "",
+      );
     } catch {
       setCatalog([]);
     } finally {
@@ -208,6 +214,10 @@ export function ConsoleApp() {
           );
           setSuggestions(data.suggestions ?? []);
           setAuthRequired(Boolean(data.authRequired));
+          setOpenProxyDenied(Boolean(data.openProxyDenied));
+          setSecurityWarning(
+            typeof data.warning === "string" ? data.warning : "",
+          );
         }
       } catch {
         /* ignore */
@@ -690,6 +700,9 @@ export function ConsoleApp() {
                 {hubToken ? "已配置 Token" : "需要 HUB_API_TOKEN"}
               </Badge>
             )}
+            {openProxyDenied && !hubToken && (
+              <Badge variant="destructive">开放代理已拒绝</Badge>
+            )}
             {policy && (
               <>
                 <Badge variant={policy.allowRemoteCompute ? "default" : "secondary"}>
@@ -720,15 +733,22 @@ export function ConsoleApp() {
       </header>
 
       <main className="mx-auto grid max-w-6xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-2">
-        {(authRequired || hubToken) && (
+        {(authRequired || hubToken || securityWarning) && (
           <section className="space-y-3 lg:col-span-2">
+            {securityWarning && (
+              <Alert variant={openProxyDenied ? "destructive" : "default"}>
+                <AlertCircle />
+                <AlertTitle>部署安全提示</AlertTitle>
+                <AlertDescription>{securityWarning}</AlertDescription>
+              </Alert>
+            )}
             <Card className="border-teal-900/10 bg-white/85 shadow-sm">
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">本机 API Token</CardTitle>
                 <CardDescription>
                   对应环境变量 <code className="text-xs">HUB_API_TOKEN</code>
-                  。写入 sessionStorage，仅本浏览器标签页有效；未设置服务端
-                  token 时可留空。
+                  。写入 sessionStorage，仅本浏览器标签页有效。局域网 /
+                  非 loopback 监听时必须配置。
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col gap-2 sm:flex-row sm:items-end">
