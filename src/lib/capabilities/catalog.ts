@@ -7,7 +7,10 @@ export type CapabilityId =
   | "text.transform"
   | "office.render"
   | "image.compose"
-  | "home.control";
+  | "home.control"
+  | "browser.open"
+  | "browser.extract"
+  | "browser.screenshot";
 
 export type CapabilitySpec = {
   id: CapabilityId;
@@ -124,6 +127,48 @@ export const CAPABILITY_CATALOG: CapabilitySpec[] = [
     sampleBody: {
       entityId: "light.living_room",
       action: "turn_on",
+    },
+  },
+  {
+    id: "browser.open",
+    nameZh: "打开网页",
+    description: "打开 URL，返回标题 / 最终地址 / HTTP 状态（需浏览器引擎或远程 browser 服务）。",
+    requiresEdge: true,
+    edgeHint: "真实模式接 Playwright/Puppeteer HTTP 服务为 Backend；无服务时用 mock。",
+    suggestedLocality: "local",
+    streamRequired: false,
+    defaultPath: "/open",
+    sampleBody: {
+      url: "https://example.com",
+    },
+  },
+  {
+    id: "browser.extract",
+    nameZh: "抽取网页",
+    description: "抽取页面可见文本或简易 DOM 摘要。",
+    requiresEdge: true,
+    edgeHint: "同上；mock 返回假文本。默认不落正文。",
+    suggestedLocality: "local",
+    streamRequired: false,
+    defaultPath: "/extract",
+    sampleBody: {
+      url: "https://example.com",
+      maxChars: 800,
+    },
+  },
+  {
+    id: "browser.screenshot",
+    nameZh: "网页截图",
+    description: "截取页面；返回元数据与可选 base64。建议 local；公网 Backend 须遵守 remote 流式硬门。",
+    requiresEdge: true,
+    edgeHint: "真实模式由浏览器服务出图；mock 返回占位 PNG。base64 仅在 retainPayloads=true 时进入历史。",
+    suggestedLocality: "local",
+    streamRequired: false,
+    defaultPath: "/screenshot",
+    sampleBody: {
+      url: "https://example.com",
+      fullPage: false,
+      includeBase64: true,
     },
   },
 ];

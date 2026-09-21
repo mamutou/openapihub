@@ -8,7 +8,7 @@ import {
 } from "@/lib/persist";
 
 /** Bump when seed shape / privacy defaults / capability mocks / devices change */
-export const STORE_SEED_VERSION = 6;
+export const STORE_SEED_VERSION = 7;
 
 type Store = {
   backends: Map<string, Backend>;

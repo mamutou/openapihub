@@ -23,6 +23,7 @@ const MOCK_BACKEND_PATHS: Record<string, string> = {
   bk_mock_office: "/api/mock/caps/office",
   bk_mock_image: "/api/mock/caps/image",
   bk_mock_home: "/api/mock/caps/home",
+  bk_mock_browser: "/api/mock/caps/browser",
 };
 
 function normalizeCapabilities(capabilities: string[]): string[] {
@@ -127,6 +128,21 @@ function buildDefaultBackends(origin: string, now: string): Backend[] {
       name: "家庭中心 Mock",
       baseUrl: `${origin}/api/mock/caps/home`,
       capabilities: ["home.control"],
+      locality: "local",
+      supportsStreaming: false,
+      enabled: true,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "bk_mock_browser",
+      name: "浏览器 Mock",
+      baseUrl: `${origin}/api/mock/caps/browser`,
+      capabilities: [
+        "browser.open",
+        "browser.extract",
+        "browser.screenshot",
+      ],
       locality: "local",
       supportsStreaming: false,
       enabled: true,

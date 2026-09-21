@@ -92,3 +92,57 @@ export type HomeControlResponse = {
   source: "mock";
   haEnvDetected?: boolean;
 };
+
+/** --- Browser (Playwright/Puppeteer HTTP 服务或 mock) --- */
+
+export type BrowserOpenRequest = {
+  url: string;
+  waitUntil?: "load" | "domcontentloaded" | "networkidle";
+  timeoutMs?: number;
+};
+
+export type BrowserOpenResponse = {
+  url: string;
+  finalUrl: string;
+  title: string;
+  status: number;
+  mock: true;
+  source: "mock";
+};
+
+export type BrowserExtractRequest = {
+  url: string;
+  maxChars?: number;
+  selector?: string;
+};
+
+export type BrowserExtractResponse = {
+  url: string;
+  finalUrl: string;
+  title: string;
+  text: string;
+  truncated: boolean;
+  mock: true;
+  source: "mock";
+};
+
+export type BrowserScreenshotRequest = {
+  url: string;
+  fullPage?: boolean;
+  /** 默认 true；false 时只返回元数据 */
+  includeBase64?: boolean;
+};
+
+export type BrowserScreenshotResponse = {
+  url: string;
+  finalUrl: string;
+  title: string;
+  width: number;
+  height: number;
+  mimeType: "image/png";
+  /** 占位图；Hub 历史仅在 retainPayloads=true 时保留 */
+  imageBase64?: string;
+  byteLength: number;
+  mock: true;
+  source: "mock";
+};

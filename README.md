@@ -90,6 +90,22 @@ Hub **不会**用你的 `OPENAI_API_KEY` / `HA_TOKEN` 代发请求。正确做�
 2. 注册 Backend：`capabilities: home.control`，path 按你的代理约定（mock 为 `/control`）。
 3. 密钥留在 HA / 本地代理；Hub 只存 baseUrl。
 
+### 浏览器引擎 → `browser.*`
+
+Hub **不内嵌 Chromium**。自建 Playwright/Puppeteer HTTP 包装（或现成 browser API），再注册为 Backend：
+
+1. 服务暴露例如：
+   - `POST /open` → `{ url }` → `{ finalUrl, title, status }`
+   - `POST /extract` → `{ url, maxChars? }` → `{ text, title, … }`
+   - `POST /screenshot` → `{ url, includeBase64? }` → `{ imageBase64?, width, height, … }`
+2. 控制台注册 Backend：
+   - baseUrl：`http://127.0.0.1:9222`（示例）
+   - capabilities：`browser.open,browser.extract,browser.screenshot`
+   - locality：本机服务填 `local`（公网 URL 会被纠正为 `remote` 并受流式硬门约束）
+3. 无真实服务时，内置 mock：`/api/mock/caps/browser/*`（`mock:true`）。
+
+截图 base64 体积大：保持 `retainPayloads=false`（默认），历史只留元数据。
+
 ## 能力一览
 
 | 能力 ID | 说明 | Mock | 端侧 |
@@ -101,6 +117,9 @@ Hub **不会**用你的 `OPENAI_API_KEY` / `HA_TOKEN` 代发请求。正确做�
 | `office.render` | 文档元数据+抽取 | `/api/mock/caps/office` | LibreOffice 等 |
 | `image.compose` | 模块化作图（强制流式） | `/api/mock/caps/image` | 画图引擎/远端 |
 | `home.control` | 家庭设备读写 | `/api/mock/caps/home` | Home Assistant |
+| `browser.open` | 打开网页 | `/api/mock/caps/browser/open` | Playwright/Puppeteer 服务 |
+| `browser.extract` | 抽取网页文本 | `/api/mock/caps/browser/extract` | 同上 |
+| `browser.screenshot` | 网页截图 | `/api/mock/caps/browser/screenshot` | 同上 |
 
 目录 API：`GET /api/capabilities`（公开，含 `authRequired` / `suggestions`）。
 
