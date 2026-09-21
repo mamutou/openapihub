@@ -1,5 +1,7 @@
 # OpenAPIHub — 个人可部署最小包
 
+**License: Apache-2.0** · Copyright 2026 mamutou
+
 统一的软件 API 调用与结果输出中枢。**算力可以上云；输出在本地；云端不留文件；remote 只走 API 流式。**
 
 适合本机长期自用，不是企业多租户生产。
@@ -161,3 +163,7 @@ curl -H "Authorization: Bearer $HUB_API_TOKEN" http://127.0.0.1:43127/api/backen
 ## 技术栈
 
 Next.js · TypeScript · Tailwind · shadcn/ui
+
+## License
+
+Licensed under the [Apache License, Version 2.0](./LICENSE). Copyright 2026 mamutou.
