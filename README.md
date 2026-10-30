@@ -1,5 +1,7 @@
 # OpenAPIHub — 个人可部署最小包
 
+[![CI](https://github.com/mamutou/openapihub/actions/workflows/ci.yml/badge.svg)](https://github.com/mamutou/openapihub/actions/workflows/ci.yml)
+
 **License: Apache-2.0** · Copyright 2026 mamutou
 
 统一的软件 API 调用与结果输出中枢。**算力可以上云；输出在本地；云端不留文件；remote 只走 API 流式。**
@@ -21,6 +23,8 @@
 ## 本机部署（推荐）
 
 > **局域网 / Docker 必须设 `HUB_API_TOKEN`。** 默认 `npm start` 只绑 `127.0.0.1`；用 `npm run start:lan`（`HUB_BIND=0.0.0.0`）且无 Token 时，管理/invoke API 会返回 401（除非显式 `HUB_ALLOW_OPEN=1`，不安全）。
+>
+> 除 `HUB_BIND` 外，鉴权还会检查请求的 `Host` 头：经局域网 IP / 域名的请求一律要求 Token（防止「实际绑了 0.0.0.0 却声明 127.0.0.1」时被静默暴露）。
 
 ```bash
 npm install
@@ -143,11 +147,28 @@ curl -N -X POST http://127.0.0.1:43127/api/invoke/stream \
 curl -H "Authorization: Bearer $HUB_API_TOKEN" http://127.0.0.1:43127/api/backends
 ```
 
+## 上游流式契约（接真实服务必读）
+
+远程调用只走 `POST /api/invoke/stream`，因此 **Backend 必须返回真正的流**：
+
+| 上游 `content-type` | Hub 行为 |
+|--------------------|----------|
+| `text/event-stream` | 逐帧解析 `data:`，识别 `{token}`、`choices[].delta.content`，转成 Hub 的 `event: token` |
+| `application/x-ndjson`、`application/jsonl` | 逐行解析 JSON，识别 `{token}` / `{content}` / `{text}` / `{response}` / `{message:{content}}` / `{delta:{content}}`（Ollama `/api/chat` 即此类） |
+| 其他（含 `application/json`） | **502 `UPSTREAM_NOT_STREAMING`**，并记录一条失败调用元数据；不会把一元响应假装成流 |
+
+`done` 事件带 `tokens` 计数：若为 0，说明上游流格式与上述都不匹配，先检查 path / body（例如 OpenAI 兼容端点要 `stream: true` 且 path 指到 `/chat/completions`）。
+
+Hub 不会替上游攒全文再回放——这正是 `streamOnlyRemote` 硬约束在实现层的落点。
+
 ## 限制（个人包）
 
-- 单机文件状态，无多租户 / OAuth / HA
-- 不代持 LLM/HA 密钥做云端转发
+- 单机文件状态，无多租户 / OAuth / HA；一次只有一个进程写 `hub-state.json`
+- 不代持 LLM/HA 密钥做云端转发：Hub 不向上游注入 `Authorization`。需要密钥的上游请自行挂一层已鉴权的本地代理，再把该代理注册为 Backend
+- `/api/mock/*` 无鉴权（只返回固定假数据，不碰状态）。局域网开放时它们同样可达——介意请把 Hub 绑回 loopback
 - 无插件市场；能力靠自注册 Backend + mock
+- 无速率限制 / 请求体大小上限；按「本机单人自用」假设设计
+- 流式只转发可识别的 token 片段；上游的 `usage`、`finish_reason`、tool-calls 等旁路字段当前不透传
 
 ## 模块
 

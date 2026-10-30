@@ -1,8 +1,20 @@
 {
   "name": "openapihub",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "license": "Apache-2.0",
+  "description": "Personal, self-hosted API hub: cloud compute allowed, output stays local, remote is stream-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mamutou/openapihub.git"
+  },
+  "homepage": "https://github.com/mamutou/openapihub#readme",
+  "bugs": {
+    "url": "https://github.com/mamutou/openapihub/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "HUB_BIND=127.0.0.1 next dev --hostname 127.0.0.1 --port 43127",
     "dev:lan": "HUB_BIND=0.0.0.0 next dev --hostname 0.0.0.0 --port 43127",

@@ -125,10 +125,6 @@ export function schedule(input: ScheduleInput): ScheduleResult {
     (b) => b.enabled && b.capabilities.includes(input.capability),
   );
 
-  if (!input.allowRemoteCompute) {
-    // caller usually pre-filters; keep invariant here too
-  }
-
   const devicesByBackend = new Map<string, Device>();
   for (const d of listDevices()) {
     if (d.backendId) devicesByBackend.set(d.backendId, d);
