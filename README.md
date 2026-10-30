@@ -67,6 +67,7 @@ docker run --rm -p 43127:43127 \
 | `HUB_DATA_DIR` | 状态目录，默认 `./data` |
 | `HUB_INVOCATION_LIMIT` | 保留的调用元数据条数，默认 `200` |
 | `UNARY_TIMEOUT_MS` / `STREAM_CONNECT_TIMEOUT_MS` | 上游超时 |
+| `HUB_MAX_BODY_BYTES` | invoke 请求体上限，默认 8 MiB（超限 413 `BODY_TOO_LARGE`） |
 | `OPENAI_BASE_URL` / `OPENAI_API_KEY` | **仅探测**；不代发 |
 | `HA_BASE_URL` / `HA_TOKEN` | 同上（Home Assistant） |
 
@@ -147,6 +148,25 @@ curl -N -X POST http://127.0.0.1:43127/api/invoke/stream \
 curl -H "Authorization: Bearer $HUB_API_TOKEN" http://127.0.0.1:43127/api/backends
 ```
 
+### 上游鉴权头（密钥不落 Hub）
+
+需要 `Authorization` 的上游，注册 Backend 时用 `headerEnv` 把 **header 名映射到环境变量名**：
+
+```bash
+curl -X POST http://127.0.0.1:43127/api/backends \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $HUB_API_TOKEN" \
+  -d '{"name":"OpenAI","baseUrl":"https://api.openai.com/v1","capabilities":["llm.chat"],
+       "locality":"remote","headerEnv":{"Authorization":"OPENAI_API_KEY"}}'
+```
+
+- Hub 只在调用那一刻从自己的进程环境读值，**state 文件里只有变量名**，登记接口不会回显密钥；
+- 不带 scheme 的值自动补 `Bearer `；
+- `X-OpenAPIHub-*`、`Content-Type`、`Accept` 为 Hub 保留，`headerEnv` 无法覆盖；
+- 控制台「注册新后端」里的「鉴权环境变量」就是这个字段。
+
+`OPENAI_API_KEY` 仍由你启动 Hub 时注入（`OPENAI_API_KEY=sk-... npm start`），Hub 不做密钥托管。
+
 ## 上游流式契约（接真实服务必读）
 
 远程调用只走 `POST /api/invoke/stream`，因此 **Backend 必须返回真正的流**：
@@ -157,18 +177,21 @@ curl -H "Authorization: Bearer $HUB_API_TOKEN" http://127.0.0.1:43127/api/backen
 | `application/x-ndjson`、`application/jsonl` | 逐行解析 JSON，识别 `{token}` / `{content}` / `{text}` / `{response}` / `{message:{content}}` / `{delta:{content}}`（Ollama `/api/chat` 即此类） |
 | 其他（含 `application/json`） | **502 `UPSTREAM_NOT_STREAMING`**，并记录一条失败调用元数据；不会把一元响应假装成流 |
 
-`done` 事件带 `tokens` 计数：若为 0，说明上游流格式与上述都不匹配，先检查 path / body（例如 OpenAI 兼容端点要 `stream: true` 且 path 指到 `/chat/completions`）。
+`done` 事件带 `tokens` 计数与 `finishReason`：若 `tokens` 为 0，说明上游流格式与上述都不匹配，先检查 path / body（例如 OpenAI 兼容端点要 `stream: true` 且 path 指到 `/chat/completions`）。
+
+上游的 `usage`、`finish_reason` / `done_reason` 作为元数据以 `event: usage`、`event: finish` 透传（不含正文，同样不进历史）。tool-calls 等其它旁路字段目前丢弃。
 
 Hub 不会替上游攒全文再回放——这正是 `streamOnlyRemote` 硬约束在实现层的落点。
 
 ## 限制（个人包）
 
-- 单机文件状态，无多租户 / OAuth / HA；一次只有一个进程写 `hub-state.json`
-- 不代持 LLM/HA 密钥做云端转发：Hub 不向上游注入 `Authorization`。需要密钥的上游请自行挂一层已鉴权的本地代理，再把该代理注册为 Backend
-- `/api/mock/*` 无鉴权（只返回固定假数据，不碰状态）。局域网开放时它们同样可达——介意请把 Hub 绑回 loopback
+- 单机文件状态，无多租户 / OAuth / HA；一次只有一个进程写 `hub-state.json`（权限 0600）
+- 不托管密钥：Hub 从不把密钥写进 state / 历史 / 日志，只用 `headerEnv` 指向的环境变量临时读取
+- `/api/mock/*` 仅限 loopback（Hub 内部调用）。局域网浏览器直接打这些端点会 401 `MOCK_LOOPBACK_ONLY`；Hub 自己的 mock Backend 已固定走 `127.0.0.1`
 - 无插件市场；能力靠自注册 Backend + mock
-- 无速率限制 / 请求体大小上限；按「本机单人自用」假设设计
-- 流式只转发可识别的 token 片段；上游的 `usage`、`finish_reason`、tool-calls 等旁路字段当前不透传
+- 无速率限制；请求体只有 `content-length` 上限（默认 8 MiB），chunked 上传不设限
+- 流式只透传 token 与 `usage` / `finish_reason`；tool-calls 等其它旁路字段丢弃
+- 设备探活/调度是骨架（打分 + 健康探测），没有真实驱动层
 
 ## 模块
 
