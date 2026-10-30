@@ -67,3 +67,65 @@ export function isUpstreamTerminal(ev: SseEvent): boolean {
     return false;
   }
 }
+
+/**
+ * NDJSON / JSON-lines upstream (e.g. Ollama /api/chat with stream:true, custom
+ * services that emit one JSON object per line instead of SSE frames).
+ * Recognizes { token | content | text | response }, { message: { content } },
+ * { delta } / { delta: { content } }, and OpenAI-ish choices[0].
+ * Anything else → no tokens (never forwarded as opaque text).
+ */
+export function extractTokensFromJsonLine(line: string): string[] {
+  const trimmed = line.trim();
+  if (!trimmed || trimmed === "[DONE]") return [];
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return [];
+  }
+  if (!parsed || typeof parsed !== "object") return [];
+  const obj = parsed as Record<string, unknown>;
+
+  for (const key of ["token", "content", "text", "response"] as const) {
+    const value = obj[key];
+    if (typeof value === "string" && value) return [value];
+  }
+
+  const message = obj.message;
+  if (message && typeof message === "object") {
+    const content = (message as { content?: unknown }).content;
+    if (typeof content === "string" && content) return [content];
+  }
+
+  const delta = obj.delta;
+  if (typeof delta === "string" && delta) return [delta];
+  if (delta && typeof delta === "object") {
+    const content = (delta as { content?: unknown }).content;
+    if (typeof content === "string" && content) return [content];
+  }
+
+  const choices = obj.choices;
+  if (Array.isArray(choices) && choices[0] && typeof choices[0] === "object") {
+    const first = choices[0] as {
+      delta?: { content?: unknown };
+      message?: { content?: unknown };
+    };
+    const content = first.delta?.content ?? first.message?.content;
+    if (typeof content === "string" && content) return [content];
+  }
+
+  return [];
+}
+
+/** Upstream stream framing accepted by the Hub. */
+export type UpstreamStreamMode = "sse" | "ndjson" | "none";
+
+export function detectStreamMode(contentType: string | null): UpstreamStreamMode {
+  const type = (contentType ?? "").toLowerCase();
+  if (type.includes("text/event-stream")) return "sse";
+  if (/(ndjson|jsonl|json-lines|x-ndjson)/.test(type)) return "ndjson";
+  return "none";
+}
+

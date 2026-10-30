@@ -15,6 +15,8 @@ import {
   type StreamInvokeSetup,
 } from "@/lib/router";
 import {
+  detectStreamMode,
+  extractTokensFromJsonLine,
   extractTokensFromUpstreamEvent,
   formatSse,
   parseSseBlocks,
@@ -112,11 +114,39 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Hub only accepts streaming upstreams. A unary JSON response here would be
+  // silently swallowed (0 tokens) while the caller sees "success" — so refuse.
+  const upstreamContentType = upstream.headers.get("content-type");
+  const streamMode = detectStreamMode(upstreamContentType);
+  if (streamMode === "none") {
+    const message =
+      `上游未返回流式响应（HTTP ${upstream.status}，content-type=${
+        upstreamContentType ?? "未知"
+      }）：Hub 只接受 text/event-stream 或 NDJSON 流，禁止一元缓冲云端输出`;
+    const invocation = finalizeStreamInvocation(setup, {
+      status: "error",
+      httpStatus: upstream.status,
+      error: message,
+      errorCode: "UPSTREAM_NOT_STREAMING",
+    });
+    return NextResponse.json(
+      {
+        error: message,
+        code: "UPSTREAM_NOT_STREAMING",
+        invocation,
+        hint:
+          "把 Backend 的 path 指向真正的流式端点（例如 OpenAI 兼容 /chat/completions 且 body.stream=true，或 Ollama /api/chat），或改用 /api/invoke（仅 local）",
+      },
+      { status: 502 },
+    );
+  }
+
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
   let assembled = "";
   const retain = setup.flags.retainPayloads;
   let finalized = false;
+  let tokensSeen = 0;
   let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
   const finalizeOnce = (
@@ -145,7 +175,34 @@ export async function POST(request: NextRequest) {
       controller.enqueue(encoder.encode(formatSse("meta", meta)));
 
       reader = upstream.body!.getReader();
-      let sseBuffer = "";
+      let buffer = "";
+
+      const emitTokens = (tokens: string[]) => {
+        for (const token of tokens) {
+          if (retain) assembled += token;
+          tokensSeen += 1;
+          controller.enqueue(encoder.encode(formatSse("token", { token })));
+        }
+      };
+
+      /** Feed raw text; `flush` finishes a trailing frame/line. */
+      const consume = (chunk: string, flush = false) => {
+        buffer += chunk;
+        if (streamMode === "sse") {
+          const parsed = parseSseBlocks(flush ? `${buffer}\n\n` : buffer);
+          buffer = flush ? "" : parsed.rest;
+          for (const ev of parsed.events) {
+            emitTokens(extractTokensFromUpstreamEvent(ev));
+          }
+          return;
+        }
+        const lines = buffer.split("\n");
+        buffer = flush ? "" : lines.pop() ?? "";
+        for (const line of lines) {
+          emitTokens(extractTokensFromJsonLine(line));
+        }
+      };
+
       try {
         while (true) {
           if (upstreamAbort.signal.aborted) {
@@ -153,35 +210,11 @@ export async function POST(request: NextRequest) {
           }
           const { done, value } = await reader.read();
           if (done) break;
-          const chunk = decoder.decode(value, { stream: true });
-          sseBuffer += chunk;
-          const parsed = parseSseBlocks(sseBuffer);
-          sseBuffer = parsed.rest;
-
-          for (const ev of parsed.events) {
-            const tokens = extractTokensFromUpstreamEvent(ev);
-            for (const token of tokens) {
-              if (retain) assembled += token;
-              controller.enqueue(
-                encoder.encode(formatSse("token", { token })),
-              );
-            }
-          }
+          consume(decoder.decode(value, { stream: true }));
         }
 
-        // Flush trailing SSE without final blank line
-        if (sseBuffer.trim()) {
-          const parsed = parseSseBlocks(sseBuffer + "\n\n");
-          for (const ev of parsed.events) {
-            const tokens = extractTokensFromUpstreamEvent(ev);
-            for (const token of tokens) {
-              if (retain) assembled += token;
-              controller.enqueue(
-                encoder.encode(formatSse("token", { token })),
-              );
-            }
-          }
-        }
+        // Flush trailing frame/line without a final terminator
+        consume("", true);
 
         const invocation = finalizeOnce({
           status: "success",
@@ -191,6 +224,7 @@ export async function POST(request: NextRequest) {
         controller.enqueue(
           encoder.encode(
             formatSse("done", {
+              tokens: tokensSeen,
               invocation: invocation
                 ? {
                     id: invocation.id,
