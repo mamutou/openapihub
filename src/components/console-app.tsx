@@ -59,6 +59,7 @@ export function ConsoleApp() {
   const [formCapabilities, setFormCapabilities] = useState("echo.message");
   const [formLocality, setFormLocality] = useState<Locality>("local");
   const [formStreaming, setFormStreaming] = useState(false);
+  const [formAuthEnv, setFormAuthEnv] = useState("");
   const [formError, setFormError] = useState("");
   const [creating, setCreating] = useState(false);
 
@@ -496,6 +497,9 @@ export function ConsoleApp() {
           locality: formLocality,
           supportsStreaming:
             formLocality === "remote" ? true : formStreaming,
+          headerEnv: formAuthEnv.trim()
+            ? { Authorization: formAuthEnv.trim() }
+            : undefined,
         }),
       });
       const data = await res.json();
@@ -505,6 +509,7 @@ export function ConsoleApp() {
       setFormCapabilities("echo.message");
       setFormLocality("local");
       setFormStreaming(false);
+      setFormAuthEnv("");
       await loadBackends();
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "创建失败");
@@ -1002,6 +1007,18 @@ export function ConsoleApp() {
                     onChange={(e) => setFormBaseUrl(e.target.value)}
                     required
                   />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="authEnv">鉴权环境变量（可选）</Label>
+                  <Input
+                    id="authEnv"
+                    value={formAuthEnv}
+                    onChange={(e) => setFormAuthEnv(e.target.value)}
+                    placeholder="例如 OPENAI_API_KEY"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    只保存变量名，Hub 调用时从自身环境读取并注入 Authorization；密钥不落盘、不回显。
+                  </p>
                 </div>
                 {formError && <p className="text-sm text-destructive">{formError}</p>}
                 <Button type="submit" disabled={creating}>

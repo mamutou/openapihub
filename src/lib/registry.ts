@@ -40,6 +40,39 @@ function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.trim().replace(/\/+$/, "");
 }
 
+const HEADER_NAME = /^[A-Za-z0-9-]{1,64}$/;
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+/** Cap the mapping so a typo can't turn into a header flood. */
+const MAX_HEADER_ENV = 8;
+
+/**
+ * Normalize header→env-var mapping. Secrets never enter state: only env names.
+ * Throws on obviously invalid names so misconfiguration surfaces at register time.
+ */
+function normalizeHeaderEnv(
+  input: Record<string, string> | null | undefined,
+): Record<string, string> | undefined {
+  if (input === null) return undefined;
+  if (!input || typeof input !== "object") return undefined;
+  const out: Record<string, string> = {};
+  for (const [rawName, rawEnv] of Object.entries(input)) {
+    const name = rawName.trim();
+    const envVar = String(rawEnv ?? "").trim();
+    if (!name && !envVar) continue;
+    if (!HEADER_NAME.test(name)) {
+      throw new Error(`headerEnv 的 header 名不合法：${name}`);
+    }
+    if (!ENV_NAME.test(envVar)) {
+      throw new Error(`headerEnv 的环境变量名不合法：${envVar}`);
+    }
+    out[name] = envVar;
+  }
+  if (Object.keys(out).length > MAX_HEADER_ENV) {
+    throw new Error(`headerEnv 最多 ${MAX_HEADER_ENV} 项`);
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function normalizeLocality(value: unknown): Locality {
   return value === "remote" ? "remote" : "local";
 }
@@ -237,6 +270,7 @@ export function createBackend(input: CreateBackendInput): Backend {
     supportsStreaming,
     enabled: input.enabled ?? true,
     deviceId: input.deviceId,
+    headerEnv: normalizeHeaderEnv(input.headerEnv),
     createdAt: now,
     updatedAt: now,
   };
@@ -275,6 +309,10 @@ export function updateBackend(
   const next: Backend = {
     ...existing,
     name: input.name !== undefined ? input.name.trim() : existing.name,
+    headerEnv:
+      input.headerEnv === undefined
+        ? existing.headerEnv
+        : normalizeHeaderEnv(input.headerEnv),
     baseUrl,
     capabilities:
       input.capabilities !== undefined

@@ -11,6 +11,12 @@ export type Backend = {
   enabled: boolean;
   /** Optional link to a Device (hardware node) */
   deviceId?: string;
+  /**
+   * Upstream headers resolved from the Hub's own environment at call time:
+   * header name → env var name. Only the NAME is stored; the secret value is
+   * never written to hub-state.json or to invocation history.
+   */
+  headerEnv?: Record<string, string>;
   createdAt: string;
   updatedAt: string;
 };
@@ -23,6 +29,7 @@ export type CreateBackendInput = {
   supportsStreaming?: boolean;
   enabled?: boolean;
   deviceId?: string;
+  headerEnv?: Record<string, string>;
 };
 
 export type UpdateBackendInput = {
@@ -33,6 +40,7 @@ export type UpdateBackendInput = {
   supportsStreaming?: boolean;
   enabled?: boolean;
   deviceId?: string | null;
+  headerEnv?: Record<string, string> | null;
 };
 
 export type DataPolicyFlags = {

@@ -53,6 +53,12 @@ export async function PATCH(request: NextRequest, { params }: Params) {
           ? Boolean(body.supportsStreaming)
           : undefined,
       enabled: body.enabled !== undefined ? Boolean(body.enabled) : undefined,
+      headerEnv:
+        body.headerEnv === null
+          ? null
+          : body.headerEnv && typeof body.headerEnv === "object"
+            ? (body.headerEnv as Record<string, string>)
+            : undefined,
     });
 
     return NextResponse.json({ backend });

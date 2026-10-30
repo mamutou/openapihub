@@ -37,6 +37,10 @@ export async function POST(request: NextRequest) {
           ? Boolean(body.supportsStreaming)
           : undefined,
       enabled: body.enabled !== false,
+      headerEnv:
+        body.headerEnv && typeof body.headerEnv === "object"
+          ? (body.headerEnv as Record<string, string>)
+          : undefined,
     });
 
     const localityCoerced =

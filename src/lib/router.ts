@@ -181,6 +181,29 @@ function capabilityForPolicy(request: InvokeRequest): string | undefined {
   return undefined;
 }
 
+/**
+ * Resolve upstream auth/identity headers from the Hub's environment.
+ * Only header→env-name pairs live in state; values are read per call and never
+ * persisted, logged, or echoed back through the API.
+ * An `Authorization` value without a scheme gets `Bearer ` prefixed.
+ */
+export function resolveUpstreamHeaders(backend: Backend): Record<string, string> {
+  const headers: Record<string, string> = {};
+  for (const [name, envVar] of Object.entries(backend.headerEnv ?? {})) {
+    // Reserved prefixes stay Hub-owned.
+    if (/^x-openapihub-/i.test(name) || /^(content-type|accept|host)$/i.test(name)) {
+      continue;
+    }
+    const value = process.env[envVar]?.trim();
+    if (!value) continue;
+    headers[name] =
+      /^authorization$/i.test(name) && !/^\S+\s/.test(value)
+        ? `Bearer ${value}`
+        : value;
+  }
+  return headers;
+}
+
 export function policyHeaders(flags: DataPolicyFlags): Record<string, string> {
   return {
     "X-OpenAPIHub-Remote-Retain-Files": flags.remoteRetainFiles ? "true" : "false",
@@ -223,6 +246,7 @@ export async function routeInvoke(
     const upstream = await fetch(targetUrl, {
       method,
       headers: {
+        ...resolveUpstreamHeaders(backend),
         "Content-Type": "application/json",
         Accept: "application/json",
         "X-OpenAPIHub-Capability": capability,
