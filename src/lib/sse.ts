@@ -119,6 +119,55 @@ export function extractTokensFromJsonLine(line: string): string[] {
   return [];
 }
 
+export type StreamSidechannel = {
+  usage?: unknown;
+  finishReason?: string;
+};
+
+function sidechannelFromObject(obj: Record<string, unknown>): StreamSidechannel {
+  const out: StreamSidechannel = {};
+  const usage = obj.usage;
+  if (usage && typeof usage === "object") out.usage = usage;
+
+  const choices = obj.choices;
+  if (Array.isArray(choices) && choices[0] && typeof choices[0] === "object") {
+    const finish = (choices[0] as { finish_reason?: unknown }).finish_reason;
+    if (typeof finish === "string" && finish) out.finishReason = finish;
+  }
+  for (const key of ["finish_reason", "done_reason"] as const) {
+    const value = obj[key];
+    if (typeof value === "string" && value) out.finishReason = value;
+  }
+  return out;
+}
+
+/**
+ * Metadata the Hub forwards as `event: usage` / `event: finish` without
+ * retaining the payload body. Only shapes we understand are passed through.
+ */
+export function extractSidechannelFromEvent(ev: SseEvent): StreamSidechannel {
+  if (!ev.data || ev.data === "[DONE]") return {};
+  try {
+    const parsed = JSON.parse(ev.data);
+    if (!parsed || typeof parsed !== "object") return {};
+    return sidechannelFromObject(parsed as Record<string, unknown>);
+  } catch {
+    return {};
+  }
+}
+
+export function extractSidechannelFromJsonLine(line: string): StreamSidechannel {
+  const trimmed = line.trim();
+  if (!trimmed || trimmed === "[DONE]") return {};
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (!parsed || typeof parsed !== "object") return {};
+    return sidechannelFromObject(parsed as Record<string, unknown>);
+  } catch {
+    return {};
+  }
+}
+
 /** Upstream stream framing accepted by the Hub. */
 export type UpstreamStreamMode = "sse" | "ndjson" | "none";
 

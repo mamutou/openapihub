@@ -5,6 +5,7 @@ import {
   abortErrorMessage,
   createTimeoutSignal,
   isAbortError,
+  isRequestBodyTooLarge,
 } from "@/lib/http";
 import { PolicyError } from "@/lib/policy";
 import { ensureHubSeeded } from "@/lib/seed";
@@ -12,14 +13,18 @@ import {
   finalizeStreamInvocation,
   policyHeaders,
   prepareStreamInvoke,
+  resolveUpstreamHeaders,
   type StreamInvokeSetup,
 } from "@/lib/router";
 import {
   detectStreamMode,
+  extractSidechannelFromEvent,
+  extractSidechannelFromJsonLine,
   extractTokensFromJsonLine,
   extractTokensFromUpstreamEvent,
   formatSse,
   parseSseBlocks,
+  type StreamSidechannel,
 } from "@/lib/sse";
 import type { InvokeRequest } from "@/lib/types";
 
@@ -29,6 +34,13 @@ export async function POST(request: NextRequest) {
   const denied = authorizeHubRequest(request);
   if (denied) return denied;
   ensureHubSeeded(request.nextUrl.origin);
+
+  if (isRequestBodyTooLarge(request)) {
+    return NextResponse.json(
+      { error: "请求体超过 HUB_MAX_BODY_BYTES 上限", code: "BODY_TOO_LARGE" },
+      { status: 413 },
+    );
+  }
 
   let body: InvokeRequest;
   try {
@@ -68,6 +80,7 @@ export async function POST(request: NextRequest) {
     upstream = await fetch(setup.targetUrl, {
       method: setup.method,
       headers: {
+        ...resolveUpstreamHeaders(setup.backend),
         "Content-Type": "application/json",
         Accept: "text/event-stream, application/json",
         "X-OpenAPIHub-Capability": setup.capability,
@@ -147,6 +160,7 @@ export async function POST(request: NextRequest) {
   const retain = setup.flags.retainPayloads;
   let finalized = false;
   let tokensSeen = 0;
+  let finishReason: string | undefined;
   let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
   const finalizeOnce = (
@@ -185,6 +199,19 @@ export async function POST(request: NextRequest) {
         }
       };
 
+      /** usage / finish_reason are metadata, not payload — always forwarded. */
+      const emitSidechannel = (side: StreamSidechannel) => {
+        if (side.usage) {
+          controller.enqueue(encoder.encode(formatSse("usage", { usage: side.usage })));
+        }
+        if (side.finishReason) {
+          finishReason = side.finishReason;
+          controller.enqueue(
+            encoder.encode(formatSse("finish", { finishReason: side.finishReason })),
+          );
+        }
+      };
+
       /** Feed raw text; `flush` finishes a trailing frame/line. */
       const consume = (chunk: string, flush = false) => {
         buffer += chunk;
@@ -193,6 +220,7 @@ export async function POST(request: NextRequest) {
           buffer = flush ? "" : parsed.rest;
           for (const ev of parsed.events) {
             emitTokens(extractTokensFromUpstreamEvent(ev));
+            emitSidechannel(extractSidechannelFromEvent(ev));
           }
           return;
         }
@@ -200,6 +228,7 @@ export async function POST(request: NextRequest) {
         buffer = flush ? "" : lines.pop() ?? "";
         for (const line of lines) {
           emitTokens(extractTokensFromJsonLine(line));
+          emitSidechannel(extractSidechannelFromJsonLine(line));
         }
       };
 
@@ -225,6 +254,7 @@ export async function POST(request: NextRequest) {
           encoder.encode(
             formatSse("done", {
               tokens: tokensSeen,
+              finishReason,
               invocation: invocation
                 ? {
                     id: invocation.id,
