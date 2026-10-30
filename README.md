@@ -4,11 +4,9 @@
 
 **License: Apache-2.0** · Copyright 2026 mamutou
 
-**语言 / Language:** [简体中文](#zh) · [English](#en)
+**语言 / Language:** [简体中文](#中文) · [English](#english)
 
 ---
-
-<a id="zh"></a>
 
 ## 中文
 
@@ -227,8 +225,6 @@ Hub 不会替上游攒全文再回放——这正是 `streamOnlyRemote` 硬约�
 Next.js · TypeScript · Tailwind · shadcn/ui · Vitest
 
 ---
-
-<a id="en"></a>
 
 ## English
 
