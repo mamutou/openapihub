@@ -11,6 +11,7 @@ export async function GET() {
     bind: auth.bind,
     loopbackBind: auth.loopbackBind,
     openProxyDenied: auth.openProxyDenied,
+    hostGuard: auth.hostGuard,
     warning: auth.warning,
   });
 }

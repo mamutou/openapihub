@@ -55,6 +55,18 @@ export function isLoopbackRequest(request: NextRequest): boolean {
   return isLoopbackHostname(hostWithoutPort(host));
 }
 
+/** Constant-time compare so a wrong token can't be found byte-by-byte. */
+function timingSafeEqualString(a: string, b: string): boolean {
+  const left = new TextEncoder().encode(a);
+  const right = new TextEncoder().encode(b);
+  let diff = left.length ^ right.length;
+  const len = Math.max(left.length, right.length);
+  for (let i = 0; i < len; i += 1) {
+    diff |= (left[i] ?? 0) ^ (right[i] ?? 0);
+  }
+  return diff === 0;
+}
+
 export function isOpenProxyAllowed(): boolean {
   return process.env.HUB_ALLOW_OPEN === "1";
 }
@@ -145,7 +157,7 @@ export function authorizeHubRequest(
     const header = request.headers.get("authorization") ?? "";
     const match = /^Bearer\s+(.+)$/i.exec(header);
     const provided = match?.[1]?.trim() ?? "";
-    if (provided && provided === expected) return null;
+    if (provided && timingSafeEqualString(provided, expected)) return null;
     return NextResponse.json(
       {
         error: "需要 Authorization: Bearer <HUB_API_TOKEN>",

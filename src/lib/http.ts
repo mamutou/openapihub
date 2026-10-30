@@ -13,6 +13,18 @@ export const STREAM_CONNECT_TIMEOUT_MS = envMs(
   60_000,
 );
 
+/** Reject oversized request bodies before they reach JSON.parse. */
+export const MAX_REQUEST_BODY_BYTES = envMs("HUB_MAX_BODY_BYTES", 8 * 1024 * 1024);
+
+export function isRequestBodyTooLarge(request: {
+  headers: { get(name: string): string | null };
+}): boolean {
+  const raw = request.headers.get("content-length");
+  if (!raw) return false; // chunked uploads: no enforceable limit here
+  const size = Number(raw);
+  return Number.isFinite(size) && size > MAX_REQUEST_BODY_BYTES;
+}
+
 export function createTimeoutSignal(
   ms: number,
   external?: AbortSignal,

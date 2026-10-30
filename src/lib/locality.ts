@@ -39,7 +39,13 @@ export function isPrivateOrLoopbackHost(hostname: string): boolean {
   if (!host) return false;
   if (allowlistHosts().has(host)) return true;
   if (host.endsWith(".local")) return true;
-  if (host === "::1" || host.startsWith("fe80:")) return true;
+  if (host === "::1") return true;
+  // IPv6 link-local fe80::/10 and unique-local fc00::/7
+  if (/^fe[89ab][0-9a-f]:/.test(host)) return true;
+  if (/^f[cd][0-9a-f]{2}:/.test(host)) return true;
+  // IPv4-mapped IPv6 (::ffff:192.168.1.5)
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(host);
+  if (mapped) return isPrivateOrLoopbackHost(mapped[1]);
 
   const n = ipv4ToInt(host);
   if (n === null) return false;

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authorizeHubRequest } from "@/lib/auth";
+import { isRequestBodyTooLarge } from "@/lib/http";
 import { PolicyError } from "@/lib/policy";
 import { ensureHubSeeded } from "@/lib/seed";
 import { routeInvoke } from "@/lib/router";
@@ -9,6 +10,13 @@ export async function POST(request: NextRequest) {
   const denied = authorizeHubRequest(request);
   if (denied) return denied;
   ensureHubSeeded(request.nextUrl.origin);
+
+  if (isRequestBodyTooLarge(request)) {
+    return NextResponse.json(
+      { error: "请求体超过 HUB_MAX_BODY_BYTES 上限", code: "BODY_TOO_LARGE" },
+      { status: 413 },
+    );
+  }
 
   let body: InvokeRequest;
   try {

@@ -52,6 +52,12 @@ export function writePersistedState(state: PersistedHubState): void {
   const file = getStateFilePath();
   const tmp = `${file}.${process.pid}.tmp`;
   const json = JSON.stringify(state, null, 2);
-  fs.writeFileSync(tmp, json, "utf8");
+  // 0600: state may carry retained payloads and backend URLs.
+  fs.writeFileSync(tmp, json, { encoding: "utf8", mode: 0o600 });
   fs.renameSync(tmp, file);
+  try {
+    fs.chmodSync(file, 0o600);
+  } catch {
+    /* best effort (e.g. exotic filesystems) */
+  }
 }
